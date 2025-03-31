@@ -1,10 +1,10 @@
-from flask import Flask, request, jsonify, render_template_string
+""from flask import Flask, request, render_template_string
 import random
 
 app = Flask(__name__)
 
 history = []
-training_mode = True
+training_mode = False
 hit_count = 0
 total_count = 0
 stage = 1
@@ -50,7 +50,11 @@ html = """
     <input type="text" name="n3" required>
     <button type="submit">提交</button>
   </form>
-  {% if result %}
+  <form method="POST">
+    <input type="hidden" name="toggle_train" value="1">
+    <button type="submit">{{ '關閉訓練模式' if training else '啟用訓練模式' }}</button>
+  </form>
+  {% if show_result %}
   <div class="result">
     <p>冠軍號碼：{{ result.champion }}</p>
     <p>預測號碼：{{ result.prediction }}</p>
@@ -60,15 +64,16 @@ html = """
     <p>目前階段：第{{ result.stage }}關</p>
     {% endif %}
   </div>
+  {% else %}
+    <div class="result">
+      <p>已輸入 {{ history_len }} 組，滿 3 組後開始預測。</p>
+    </div>
   {% endif %}
 </body>
 </html>
 """
 
 def generate_prediction():
-    global history
-    if len(history) < 3:
-        return []
     recent = history[-3:]
     pool = list(range(1, 11))
     freq = {}
@@ -78,6 +83,12 @@ def generate_prediction():
 
     hot = max(freq, key=freq.get)
     dynamic_hot = recent[-1][0]
+    if dynamic_hot == hot:
+        sorted_freq = sorted(freq.items(), key=lambda x: (-x[1], -recent[::-1].index([g for g in recent if x[0] in g][0])))
+        for n, _ in sorted_freq:
+            if n != hot:
+                dynamic_hot = n
+                break
 
     cold_candidates = [n for n in pool if n not in freq]
     cold = random.choice(cold_candidates) if cold_candidates else random.choice(pool)
@@ -90,21 +101,25 @@ def generate_prediction():
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    global history, hit_count, total_count, stage
+    global history, hit_count, total_count, stage, training_mode
     result = None
+    show_result = False
 
     if request.method == "POST":
-        try:
-            nums = [int(request.form.get(f"n{i}")) for i in range(1, 4)]
-        except:
-            return render_template_string(html, result=None)
+        if 'toggle_train' in request.form:
+            training_mode = not training_mode
+        else:
+            try:
+                nums = [int(request.form.get(f"n{i}")) for i in range(1, 4)]
+                if len(nums) == 3:
+                    history.append(nums)
+            except:
+                return render_template_string(html, result=None, training=training_mode, show_result=False, history_len=len(history))
 
-        if len(nums) != 3:
-            return render_template_string(html, result=None)
-
-        history.append(nums)
+    if len(history) >= 3:
         prediction = generate_prediction()
-        champion = nums[0]
+        last_input = history[-1]
+        champion = last_input[0]
         hit = champion in prediction
 
         if training_mode:
@@ -124,8 +139,9 @@ def index():
             "total_count": total_count,
             "stage": stage
         }
+        show_result = True
 
-    return render_template_string(html, result=result)
+    return render_template_string(html, result=result, training=training_mode, show_result=show_result, history_len=len(history))
 
 if __name__ == "__main__":
     app.run(debug=True)
