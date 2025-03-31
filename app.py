@@ -1,4 +1,4 @@
-""from flask import Flask, request, render_template_string
+from flask import Flask, request, render_template_string
 import random
 
 app = Flask(__name__)
@@ -84,7 +84,7 @@ def generate_prediction():
     hot = max(freq, key=freq.get)
     dynamic_hot = recent[-1][0]
     if dynamic_hot == hot:
-        sorted_freq = sorted(freq.items(), key=lambda x: (-x[1], -recent[::-1].index([g for g in recent if x[0] in g][0])))
+        sorted_freq = sorted(freq.items(), key=lambda x: (-x[1], x[0]))
         for n, _ in sorted_freq:
             if n != hot:
                 dynamic_hot = n
