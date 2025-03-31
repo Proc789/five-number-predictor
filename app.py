@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template_string
+""from flask import Flask, request, render_template_string
 import random
 
 app = Flask(__name__)
@@ -8,6 +8,7 @@ history = []
 hit_count = 0
 total_count = 0
 current_stage = 1
+training_mode = False
 
 HTML_TEMPLATE = """
 <!doctype html>
@@ -23,16 +24,24 @@ HTML_TEMPLATE = """
   <input name="num1" type="number" required>
   <input name="num2" type="number" required>
   <input name="num3" type="number" required>
-  <button type="submit">預測</button>
+  <button type="submit">送出</button>
+</form>
+<form method="post">
+  <input type="hidden" name="toggle_training" value="1">
+  <button type="submit">{{ '關閉訓練模式' if training else '啟動訓練模式' }}</button>
 </form>
 
-{% if prediction %}
+{% if len(history) >= 3 %}
 <div class="result">
   <p><strong>預測號碼：</strong> {{ prediction }}</p>
   <p><strong>冠軍號碼：</strong> {{ champion }}</p>
   <p><strong>是否命中：</strong> {{ '命中' if hit else '未命中' }}</p>
   <p><strong>階段：</strong> 第 {{ stage }} 關</p>
   <p><strong>命中統計：</strong> {{ hit_count }} / {{ total_count }}</p>
+</div>
+{% else %}
+<div class="result">
+  <p>已輸入 {{ len(history) }} 組，需滿 3 組後開始預測。</p>
 </div>
 {% endif %}
 """
@@ -66,28 +75,33 @@ def generate_prediction():
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    global history, hit_count, total_count, current_stage
+    global history, hit_count, total_count, current_stage, training_mode
 
     prediction = None
     champion = None
     hit = False
 
     if request.method == "POST":
-        try:
-            nums = [int(request.form[f"num{i}"]) for i in range(1, 4)]
-            if len(nums) == 3:
-                history.append(nums)
-                prediction = generate_prediction()
-                champion = nums[0]
-                hit = champion in prediction
-                total_count += 1
-                if hit:
-                    hit_count += 1
-                    current_stage = 1
-                else:
-                    current_stage += 1
-        except:
-            pass
+        if "toggle_training" in request.form:
+            training_mode = not training_mode
+        else:
+            try:
+                nums = [int(request.form[f"num{i}"]) for i in range(1, 4)]
+                if len(nums) == 3:
+                    history.append(nums)
+                    if len(history) >= 3:
+                        prediction = generate_prediction()
+                        champion = nums[0]
+                        hit = champion in prediction
+                        if training_mode:
+                            total_count += 1
+                            if hit:
+                                hit_count += 1
+                                current_stage = 1
+                            else:
+                                current_stage += 1
+            except:
+                pass
 
     return render_template_string(HTML_TEMPLATE,
         prediction=prediction,
@@ -95,7 +109,9 @@ def index():
         hit=hit,
         stage=current_stage,
         hit_count=hit_count,
-        total_count=total_count
+        total_count=total_count,
+        history=history,
+        training=training_mode
     )
 
 if __name__ == "__main__":
