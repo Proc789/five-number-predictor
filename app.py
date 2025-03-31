@@ -1,176 +1,131 @@
-""from flask import Flask, request, render_template_string
+from flask import Flask, request, jsonify, render_template_string
 import random
 
 app = Flask(__name__)
 
 history = []
-training_mode = False
+training_mode = True
 hit_count = 0
 total_count = 0
 stage = 1
 
-HTML_TEMPLATE = """
+html = """
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>5 號碼預測器</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            margin: 0;
-            background-color: #fff;
-        }
-        h1 {
-            font-size: 28px;
-            font-weight: bold;
-            margin-bottom: 24px;
-        }
-        form {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            width: 90%;
-            max-width: 400px;
-        }
-        input[type="text"] {
-            font-size: 18px;
-            padding: 14px;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-        }
-        button {
-            font-size: 16px;
-            padding: 12px;
-            border: none;
-            border-radius: 6px;
-            background-color: #007bff;
-            color: white;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #0056b3;
-        }
-        .toggle {
-            margin-top: 10px;
-            background-color: #e0e0e0;
-            color: #333;
-        }
-        .record {
-            margin-top: 30px;
-            font-size: 18px;
-            text-align: left;
-            width: 90%;
-            max-width: 400px;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>5碼預測器</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: sans-serif;
+    }
+    input[type='text'] {
+      font-size: 1.5rem;
+      margin: 5px;
+      padding: 10px;
+      width: 60px;
+      text-align: center;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 1.2rem;
+    }
+    .result {
+      margin-top: 20px;
+      font-size: 1.3rem;
+    }
+  </style>
 </head>
 <body>
-    <h1>5 號碼預測器</h1>
-    <form method="post">
-        <input type="text" name="first" placeholder="冠軍號碼">
-        <input type="text" name="second" placeholder="亞軍號碼">
-        <input type="text" name="third" placeholder="季軍號碼">
-        <button type="submit">提交</button>
-        <button type="submit" name="toggle_train" class="toggle">{{ '關閉訓練模式' if training else '啟動訓練模式' }}</button>
-    </form>
-
-    <div class="record">
-        <p><strong>最近輸入紀錄：</strong><br>{{ history_display }}</p>
-        {% if prediction %}
-            <p><strong>預測結果：</strong> {{ prediction }}</p>
-            <p><strong>命中判定：</strong> {{ hit_text }}</p>
-            <p><strong>訓練狀態：</strong> {{ hit_count }} / {{ total_count }}，目前為第 {{ stage }} 關</p>
-        {% endif %}
-    </div>
+  <h2>5碼預測器</h2>
+  <form method="POST">
+    <input type="text" name="n1" required>
+    <input type="text" name="n2" required>
+    <input type="text" name="n3" required>
+    <button type="submit">提交</button>
+  </form>
+  {% if result %}
+  <div class="result">
+    <p>冠軍號碼：{{ result.champion }}</p>
+    <p>預測號碼：{{ result.prediction }}</p>
+    <p>是否命中：{{ result.hit }}</p>
+    {% if result.training %}
+    <p>訓練命中率：{{ result.hit_count }}/{{ result.total_count }}</p>
+    <p>目前階段：第{{ result.stage }}關</p>
+    {% endif %}
+  </div>
+  {% endif %}
 </body>
 </html>
 """
 
-def get_hot_numbers():
-    flat = [n for group in history[-3:] for n in group]
-    freq = {n: flat.count(n) for n in set(flat)}
-    max_freq = max(freq.values(), default=0)
-    hot_candidates = [n for n in freq if freq[n] == max_freq]
-    recent = list(reversed(history[-3:]))
+def generate_prediction():
+    global history
+    if len(history) < 3:
+        return []
+    recent = history[-3:]
+    pool = list(range(1, 11))
+    freq = {}
     for group in recent:
         for n in group:
-            if n in hot_candidates:
-                return n
-    return random.randint(1, 10)
+            freq[n] = freq.get(n, 0) + 1
 
-def get_dynamic_hot():
-    return history[-1][0] if history else random.randint(1, 10)
+    hot = max(freq, key=freq.get)
+    dynamic_hot = recent[-1][0]
 
-def get_cold():
-    flat = [n for group in history[-6:] for n in group]
-    freq = {n: flat.count(n) for n in range(1, 11)}
-    min_freq = min(freq.values())
-    cold_candidates = [n for n in freq if freq[n] == min_freq]
-    return random.choice(cold_candidates)
+    cold_candidates = [n for n in pool if n not in freq]
+    cold = random.choice(cold_candidates) if cold_candidates else random.choice(pool)
 
-def generate_prediction():
-    hot = get_hot_numbers()
-    dynamic_hot = get_dynamic_hot()
-    if dynamic_hot == hot:
-        pool = [n for n in range(1, 11) if n != hot]
-        dynamic_hot = random.choice(pool)
-    cold = get_cold()
-    pool = [n for n in range(1, 11) if n not in {hot, dynamic_hot, cold}]
+    avoid = {hot, dynamic_hot, cold}
+    remaining = [n for n in pool if n not in avoid]
+    rands = random.sample(remaining, 2)
 
-    for _ in range(10):
-        rands = random.sample(pool, 2)
-        combined = [hot, dynamic_hot, cold] + rands
-        if len(set(combined)) == 5:
-            return sorted(combined)
-    return sorted([hot, dynamic_hot, cold] + random.sample(pool, 2))
+    return sorted([hot, dynamic_hot, cold] + rands)
 
-@app.route('/', methods=['GET', 'POST'])
+@app.route("/", methods=["GET", "POST"])
 def index():
-    global training_mode, hit_count, total_count, stage
-    prediction = None
-    hit_text = None
-    if request.method == 'POST':
-        if 'toggle_train' in request.form:
-            training_mode = not training_mode
-        else:
-            try:
-                n1 = int(request.form['first'])
-                n2 = int(request.form['second'])
-                n3 = int(request.form['third'])
-                new_data = [n1, n2, n3]
-                history.append(new_data)
+    global history, hit_count, total_count, stage
+    result = None
 
-                if len(history) >= 3:
-                    prediction = generate_prediction()
-                    champion = new_data[0]
-                    hit = champion in prediction
-                    hit_text = "命中" if hit else "未命中"
+    if request.method == "POST":
+        try:
+            nums = [int(request.form.get(f"n{i}")) for i in range(1, 4)]
+        except:
+            return render_template_string(html, result=None)
 
-                    if training_mode:
-                        total_count += 1
-                        if hit:
-                            hit_count += 1
-                            stage = 1
-                        else:
-                            stage += 1
-            except:
-                hit_text = "輸入錯誤，請輸入 1-10 的整數"
+        if len(nums) != 3:
+            return render_template_string(html, result=None)
 
-    return render_template_string(HTML_TEMPLATE,
-        prediction=prediction,
-        hit_text=hit_text,
-        training=training_mode,
-        hit_count=hit_count,
-        total_count=total_count,
-        stage=stage,
-        history_display='<br>'.join([str(h) for h in history])
-    )
+        history.append(nums)
+        prediction = generate_prediction()
+        champion = nums[0]
+        hit = champion in prediction
 
-if __name__ == '__main__':
+        if training_mode:
+            total_count += 1
+            if hit:
+                hit_count += 1
+                stage = 1
+            else:
+                stage += 1
+
+        result = {
+            "champion": champion,
+            "prediction": prediction,
+            "hit": "命中" if hit else "未命中",
+            "training": training_mode,
+            "hit_count": hit_count,
+            "total_count": total_count,
+            "stage": stage
+        }
+
+    return render_template_string(html, result=result)
+
+if __name__ == "__main__":
     app.run(debug=True)
