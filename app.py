@@ -1,118 +1,121 @@
-""from flask import Flask, request, render_template_string
+from flask import Flask, request, render_template_string
 import random
 
 app = Flask(__name__)
 
-# 資料初始化
 history = []
+training_mode = False
 hit_count = 0
 total_count = 0
-current_stage = 1
-training_mode = False
+stage = 1
 
-HTML_TEMPLATE = """
+TEMPLATE = '''
 <!doctype html>
-<title>5碼預測器</title>
-<style>
-  body { font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; }
-  input { width: 60px; padding: 5px; margin: 5px; text-align: center; }
-  button { padding: 10px 20px; margin-top: 10px; }
-  .result { margin-top: 20px; padding: 10px; background: #f5f5f5; border-radius: 8px; }
-</style>
-<h2>輸入前三名號碼</h2>
-<form method="post">
-  <input name="num1" type="number" required>
-  <input name="num2" type="number" required>
-  <input name="num3" type="number" required>
-  <button type="submit">送出</button>
-</form>
-<form method="post">
-  <input type="hidden" name="toggle_training" value="1">
-  <button type="submit">{{ '關閉訓練模式' if training else '啟動訓練模式' }}</button>
+<title>5-Number Predictor</title>
+<h2>5-Number Predictor</h2>
+<form method=post>
+  <label>前三名號碼 (每組輸入1個數字):</label><br>
+  <input name=n1 required type=number min=1 max=10>
+  <input name=n2 required type=number min=1 max=10>
+  <input name=n3 required type=number min=1 max=10><br><br>
+  <button type=submit>送出並預測</button>
 </form>
 
-{% if len(history) >= 3 %}
-<div class="result">
-  <p><strong>預測號碼：</strong> {{ prediction }}</p>
-  <p><strong>冠軍號碼：</strong> {{ champion }}</p>
-  <p><strong>是否命中：</strong> {{ '命中' if hit else '未命中' }}</p>
-  <p><strong>階段：</strong> 第 {{ stage }} 關</p>
-  <p><strong>命中統計：</strong> {{ hit_count }} / {{ total_count }}</p>
-</div>
-{% else %}
-<div class="result">
-  <p>已輸入 {{ len(history) }} 組，需滿 3 組後開始預測。</p>
-</div>
+<form method=post action="/toggle">
+  <button type=submit>{{ '關閉訓練模式' if training else '啟用訓練模式' }}</button>
+</form>
+
+{% if prediction %}
+  <h3>預測結果：{{ prediction }}</h3>
+  <p>冠軍號碼：{{ first }}</p>
+  <p>是否命中：{{ '命中' if hit else '未命中' }}</p>
+  <p>命中率：{{ hit_count }}/{{ total_count }}</p>
+  <p>目前階段：第{{ stage }}關</p>
 {% endif %}
-"""
+'''
+
+def get_hot_numbers():
+    flat = [n for group in history[-3:] for n in group]
+    freq = {n: flat.count(n) for n in set(flat)}
+    max_freq = max(freq.values(), default=0)
+    hot_candidates = [n for n in freq if freq[n] == max_freq]
+    recent = list(reversed(history[-3:]))
+    for group in recent:
+        for n in group:
+            if n in hot_candidates:
+                return n
+    return random.randint(1, 10)
+
+def get_dynamic_hot():
+    return history[-1][0] if history else random.randint(1, 10)
+
+def get_cold():
+    flat = [n for group in history[-6:] for n in group]
+    freq = {n: flat.count(n) for n in range(1, 11)}
+    min_freq = min(freq.values())
+    cold_candidates = [n for n in freq if freq[n] == min_freq]
+    return random.choice(cold_candidates)
 
 def generate_prediction():
-    recent = history[-3:]
-    flat = [n for group in recent for n in group]
-    freq = {n: flat.count(n) for n in set(flat)}
-    max_freq = max(freq.values()) if freq else 0
-    hot_candidates = [n for n in freq if freq[n] == max_freq]
-    hot = hot_candidates[-1] if hot_candidates else random.randint(1, 10)
-
-    last_champion = history[-1][0] if history else hot
-    dynamic_hot = last_champion if last_champion != hot else (hot_candidates[-2] if len(hot_candidates) > 1 else random.randint(1, 10))
-
-    all_numbers = list(range(1, 11))
-    count_map = {n: flat.count(n) for n in all_numbers}
-    min_freq = min(count_map.values()) if count_map else 0
-    cold_candidates = [n for n in count_map if count_map[n] == min_freq]
-    cold = random.choice(cold_candidates)
-
-    pool = [n for n in all_numbers if n not in [hot, dynamic_hot, cold]]
-    prev_random = history[-1][-2:] if len(history) >= 1 else []
+    hot = get_hot_numbers()
+    dynamic_hot = get_dynamic_hot()
+    if dynamic_hot == hot:
+        pool = [n for n in range(1, 11) if n != hot]
+        dynamic_hot = random.choice(pool)
+    cold = get_cold()
+    pool = [n for n in range(1, 11) if n not in {hot, dynamic_hot, cold}]
 
     for _ in range(10):
         rands = random.sample(pool, 2)
-        if len(set(rands) & set(prev_random)) <= 1:
-            return sorted([hot, dynamic_hot, cold] + rands)
-
+        combined = [hot, dynamic_hot, cold] + rands
+        if len(set(combined)) == 5:
+            return sorted(combined)
     return sorted([hot, dynamic_hot, cold] + random.sample(pool, 2))
 
-@app.route("/", methods=["GET", "POST"])
+@app.route('/', methods=['GET', 'POST'])
 def index():
-    global history, hit_count, total_count, current_stage, training_mode
-
+    global training_mode, hit_count, total_count, stage
     prediction = None
-    champion = None
-    hit = False
+    first = None
+    hit = None
+    if request.method == 'POST':
+        try:
+            n1 = int(request.form['n1'])
+            n2 = int(request.form['n2'])
+            n3 = int(request.form['n3'])
+        except:
+            return render_template_string(TEMPLATE, prediction="輸入錯誤", training=training_mode)
 
-    if request.method == "POST":
-        if "toggle_training" in request.form:
-            training_mode = not training_mode
-        else:
-            try:
-                nums = [int(request.form[f"num{i}"]) for i in range(1, 4)]
-                if len(nums) == 3:
-                    history.append(nums)
-                    if len(history) >= 3:
-                        prediction = generate_prediction()
-                        champion = nums[0]
-                        hit = champion in prediction
-                        if training_mode:
-                            total_count += 1
-                            if hit:
-                                hit_count += 1
-                                current_stage = 1
-                            else:
-                                current_stage += 1
-            except:
-                pass
+        new_data = [n1, n2, n3]
+        history.append(new_data)
 
-    return render_template_string(HTML_TEMPLATE,
-        prediction=prediction,
-        champion=champion,
-        hit=hit,
-        stage=current_stage,
-        hit_count=hit_count,
-        total_count=total_count,
-        history=history,
-        training=training_mode
-    )
+        if len(history) >= 3:
+            prediction = generate_prediction()
+            first = new_data[0]
+            hit = first in prediction
 
-if __name__ == "__main__":
+            if training_mode:
+                total_count += 1
+                if hit:
+                    hit_count += 1
+                    stage = 1
+                else:
+                    stage += 1
+
+    return render_template_string(TEMPLATE,
+                                  prediction=prediction,
+                                  first=first,
+                                  hit=hit,
+                                  training=training_mode,
+                                  hit_count=hit_count,
+                                  total_count=total_count,
+                                  stage=stage)
+
+@app.route('/toggle', methods=['POST'])
+def toggle_training():
+    global training_mode
+    training_mode = not training_mode
+    return index()
+
+if __name__ == '__main__':
     app.run(debug=True)
