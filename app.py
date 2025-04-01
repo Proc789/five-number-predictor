@@ -1,148 +1,149 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, render_template_string, request
 import random
 
 app = Flask(__name__)
-
 history = []
-training_mode = False
-hit_count = 0
-total_count = 0
+predictions = []
+hits = 0
+total = 0
 stage = 1
+training = False
 
-html = """
+@app.route("/", methods=["GET", "POST"])
+def home():
+    global hits, total, stage, training
+    result = None
+    last_champion = None
+    last_prediction = None
+    hit = None
+
+    if request.method == "POST":
+        try:
+            first = int(request.form.get("first"))
+            second = int(request.form.get("second"))
+            third = int(request.form.get("third"))
+            current = [first, second, third]
+            history.append(current)
+
+            if len(predictions) >= 1:
+                last_prediction = predictions[-1]
+                last_champion = current[0]
+                if last_champion in last_prediction:
+                    hit = "命中"
+                    if training:
+                        hits += 1
+                        stage = 1
+                else:
+                    hit = "未命中"
+                    if training:
+                        stage += 1
+
+                if training:
+                    total += 1
+
+            if len(history) >= 3:
+                prediction = generate_prediction()
+                predictions.append(prediction)
+                result = prediction
+            else:
+                result = "請至少輸入三期資料後才可預測"
+
+        except:
+            result = "格式錯誤，請輸入 1~10 的整數"
+
+    toggle_text = "關閉訓練模式" if training else "啟動訓練模式"
+    return render_template_string(TEMPLATE, result=result, history=history[-5:],
+                                  last_champion=last_champion, last_prediction=last_prediction,
+                                  hit=hit, training=training, toggle_text=toggle_text,
+                                  stats=f"{hits} / {total}" if training else None,
+                                  stage=stage if training else None)
+
+@app.route("/toggle")
+def toggle():
+    global training, hits, total, stage
+    training = not training
+    if training:
+        hits = 0
+        total = 0
+        stage = 1
+    return "<script>window.location.href='/'</script>"
+
+def generate_prediction():
+    recent = history[-3:]
+    flat = [n for group in recent for n in group]
+    freq = {n: flat.count(n) for n in set(flat)}
+    max_freq = max(freq.values())
+    hot_candidates = [n for n in freq if freq[n] == max_freq]
+    for group in reversed(recent):
+        for n in group:
+            if n in hot_candidates:
+                hot = n
+                break
+        else:
+            continue
+        break
+
+    last_champion = history[-1][0]
+    dynamic_hot = last_champion if last_champion != hot else next((n for n in hot_candidates if n != hot), random.choice([n for n in range(1, 11) if n != hot]))
+
+    pool = [n for n in range(1, 11) if n not in (hot, dynamic_hot)]
+    random.shuffle(pool)
+
+    prev_random = []
+    if len(predictions) > 0:
+        prev_random = [n for n in predictions[-1] if n not in (hot, dynamic_hot)]
+
+    for _ in range(10):
+        rands = random.sample(pool, 3)
+        if len(set(rands) & set(prev_random)) <= 2:
+            return sorted([hot, dynamic_hot] + rands)
+
+    return sorted([hot, dynamic_hot] + random.sample(pool, 3))
+
+TEMPLATE = """
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>5碼預測器</title>
-  <style>
-    body {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      font-family: sans-serif;
-    }
-    input[type='text'] {
-      font-size: 1.5rem;
-      margin: 5px;
-      padding: 10px;
-      width: 60px;
-      text-align: center;
-    }
-    button {
-      padding: 10px 20px;
-      font-size: 1.2rem;
-      margin: 10px;
-    }
-    .result {
-      margin-top: 20px;
-      font-size: 1.3rem;
-    }
-  </style>
-</head>
-<body>
-  <h2>5碼預測器</h2>
-  <form method="POST">
-    <input type="text" name="n1" required>
-    <input type="text" name="n2" required>
-    <input type="text" name="n3" required>
-    <button type="submit">提交</button>
-  </form>
-  <form method="POST">
-    <input type="hidden" name="toggle_training" value="1">
-    <button type="submit">{{ '關閉訓練模式' if training_mode else '啟動訓練模式' }}</button>
-  </form>
-  {% if result %}
-  <div class="result">
-    <p>冠軍號碼：{{ result.champion }}</p>
-    <p>預測號碼：{{ result.prediction }}</p>
-    <p>是否命中：{{ result.hit }}</p>
-    {% if result.training %}
-    <p>訓練命中率：{{ result.hit_count }}/{{ result.total_count }}</p>
-    <p>目前階段：第{{ result.stage }}關</p>
+<html>
+  <head>
+    <title>5 號碼預測器</title>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+  </head>
+  <body style="max-width: 400px; margin: auto; padding-top: 50px; text-align: center; font-family: sans-serif;">
+    <h2>5 號碼預測器</h2>
+    <form method="POST">
+      <div>
+        <input type="number" name="first" placeholder="冠軍號碼" required style="width: 80%; padding: 8px;"><br><br>
+        <input type="number" name="second" placeholder="亞軍號碼" required style="width: 80%; padding: 8px;"><br><br>
+        <input type="number" name="third" placeholder="季軍號碼" required style="width: 80%; padding: 8px;"><br><br>
+        <button type="submit" style="padding: 10px 20px;">提交</button>
+      </div>
+    </form>
+    <br>
+    <a href="/toggle"><button>{{ toggle_text }}</button></a>
+    {% if training %}
+      <div><strong>訓練中...</strong></div>
+      <div>命中率：{{ stats }}</div>
+      <div>目前階段：第 {{ stage }} 關</div>
     {% endif %}
-  </div>
-  {% endif %}
-</body>
+    {% if last_champion %}
+      <br><div><strong>上期冠軍號碼：</strong>{{ last_champion }}</div>
+      <div><strong>是否命中：</strong>{{ hit }}</div>
+      <div><strong>上期預測號碼：</strong>{{ last_prediction }}</div>
+    {% endif %}
+    {% if result %}
+      <br><div><strong>下期預測號碼：</strong> {{ result }}</div>
+    {% endif %}
+    <br>
+    <div style="text-align: left;">
+      <strong>最近輸入紀錄：</strong>
+      <ul>
+        {% for row in history %}
+          <li>{{ row }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </body>
 </html>
 """
 
-def generate_prediction():
-    if len(history) < 3:
-        return []
-
-    recent = history[-3:]
-    pool = list(range(1, 11))
-    freq = {}
-    for group in recent:
-        for n in group:
-            freq[n] = freq.get(n, 0) + 1
-
-    sorted_freq = sorted(freq.items(), key=lambda x: (-x[1], -recent[::-1].index([g for g in recent if x[0] in g][0])))
-    hot = sorted_freq[0][0]
-
-    # 動態熱號初步設定為最近一期的冠軍
-    dynamic_hot = recent[-1][0]
-    if dynamic_hot == hot and len(sorted_freq) > 1:
-        dynamic_hot = sorted_freq[1][0]
-
-    cold_candidates = [n for n in pool if n not in freq and n != hot and n != dynamic_hot]
-    cold = random.choice(cold_candidates) if cold_candidates else random.choice([n for n in pool if n != hot and n != dynamic_hot])
-
-    selected = {hot, dynamic_hot, cold}
-    remaining = [n for n in pool if n not in selected]
-    rands = random.sample(remaining, 2)
-
-    final = sorted([hot, dynamic_hot, cold] + rands)
-    return final
-
-@app.route("/", methods=["GET", "POST"])
-def index():
-    global history, hit_count, total_count, stage, training_mode
-    result = None
-
-    if request.method == "POST":
-        if request.form.get("toggle_training"):
-            training_mode = not training_mode
-            return render_template_string(html, result=None, training_mode=training_mode)
-
-        try:
-            nums = [int(request.form.get(f"n{i}")) for i in range(1, 4)]
-        except:
-            return render_template_string(html, result=None, training_mode=training_mode)
-
-        if len(nums) != 3:
-            return render_template_string(html, result=None, training_mode=training_mode)
-
-        history.append(nums)
-        prediction = generate_prediction() if len(history) >= 3 else []
-
-        champion = nums[0]
-        hit = champion in prediction
-
-        if training_mode and len(prediction) > 0:
-            total_count += 1
-            if hit:
-                hit_count += 1
-                stage = 1
-            else:
-                stage += 1
-
-        result = {
-            "champion": champion,
-            "prediction": prediction,
-            "hit": "命中" if hit else "未命中",
-            "training": training_mode,
-            "hit_count": hit_count,
-            "total_count": total_count,
-            "stage": stage
-        }
-
-    return render_template_string(html, result=result, training_mode=training_mode)
-
 if __name__ == "__main__":
     app.run(debug=True)
- 
