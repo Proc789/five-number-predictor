@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template_string, redirect, url_for
+from flask import Flask, request, jsonify, render_template_string
 import random
 
 app = Flask(__name__)
@@ -26,7 +26,7 @@ html = """
       font-family: sans-serif;
     }
     input[type='text'] {
-      font-size: 2rem;
+      font-size: 1.5rem;
       margin: 5px;
       padding: 10px;
       width: 60px;
@@ -35,11 +35,11 @@ html = """
     button {
       padding: 10px 20px;
       font-size: 1.2rem;
+      margin: 10px;
     }
     .result {
       margin-top: 20px;
       font-size: 1.3rem;
-      text-align: center;
     }
   </style>
 </head>
@@ -51,7 +51,8 @@ html = """
     <input type="text" name="n3" required>
     <button type="submit">提交</button>
   </form>
-  <form method="POST" action="/toggle">
+  <form method="POST">
+    <input type="hidden" name="toggle_training" value="1">
     <button type="submit">{{ '關閉訓練模式' if training_mode else '啟動訓練模式' }}</button>
   </form>
   {% if result %}
@@ -72,6 +73,7 @@ html = """
 def generate_prediction():
     if len(history) < 3:
         return []
+
     recent = history[-3:]
     pool = list(range(1, 11))
     freq = {}
@@ -79,25 +81,34 @@ def generate_prediction():
         for n in group:
             freq[n] = freq.get(n, 0) + 1
 
-    hot = max(freq, key=freq.get)
-    dynamic_hot = recent[-1][0]  # 上一期冠軍
-    cold_candidates = [n for n in pool if n not in freq]
-    cold = random.choice(cold_candidates) if cold_candidates else random.choice(pool)
+    sorted_freq = sorted(freq.items(), key=lambda x: (-x[1], -recent[::-1].index([g for g in recent if x[0] in g][0])))
+    hot = sorted_freq[0][0]
 
-    avoid = {hot, dynamic_hot, cold}
-    remaining = [n for n in pool if n not in avoid]
+    # 動態熱號初步設定為最近一期的冠軍
+    dynamic_hot = recent[-1][0]
+    if dynamic_hot == hot and len(sorted_freq) > 1:
+        dynamic_hot = sorted_freq[1][0]
+
+    cold_candidates = [n for n in pool if n not in freq and n != hot and n != dynamic_hot]
+    cold = random.choice(cold_candidates) if cold_candidates else random.choice([n for n in pool if n != hot and n != dynamic_hot])
+
+    selected = {hot, dynamic_hot, cold}
+    remaining = [n for n in pool if n not in selected]
     rands = random.sample(remaining, 2)
 
-    return sorted([hot, dynamic_hot, cold] + rands)
+    final = sorted([hot, dynamic_hot, cold] + rands)
+    return final
 
 @app.route("/", methods=["GET", "POST"])
 def index():
     global history, hit_count, total_count, stage, training_mode
     result = None
 
-    prediction = generate_prediction() if len(history) >= 3 else []
-
     if request.method == "POST":
+        if request.form.get("toggle_training"):
+            training_mode = not training_mode
+            return render_template_string(html, result=None, training_mode=training_mode)
+
         try:
             nums = [int(request.form.get(f"n{i}")) for i in range(1, 4)]
         except:
@@ -105,6 +116,9 @@ def index():
 
         if len(nums) != 3:
             return render_template_string(html, result=None, training_mode=training_mode)
+
+        history.append(nums)
+        prediction = generate_prediction() if len(history) >= 3 else []
 
         champion = nums[0]
         hit = champion in prediction
@@ -127,15 +141,8 @@ def index():
             "stage": stage
         }
 
-        history.append(nums)  # 資料最後再加入
-
     return render_template_string(html, result=result, training_mode=training_mode)
-
-@app.route("/toggle", methods=["POST"])
-def toggle():
-    global training_mode
-    training_mode = not training_mode
-    return redirect(url_for("index"))
 
 if __name__ == "__main__":
     app.run(debug=True)
+ 
