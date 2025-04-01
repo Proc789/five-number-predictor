@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template_string
+from flask import Flask, request, render_template_string, redirect, url_for
 import random
 
 app = Flask(__name__)
@@ -26,7 +26,7 @@ html = """
       font-family: sans-serif;
     }
     input[type='text'] {
-      font-size: 1.5rem;
+      font-size: 2rem;
       margin: 5px;
       padding: 10px;
       width: 60px;
@@ -39,6 +39,7 @@ html = """
     .result {
       margin-top: 20px;
       font-size: 1.3rem;
+      text-align: center;
     }
   </style>
 </head>
@@ -50,11 +51,10 @@ html = """
     <input type="text" name="n3" required>
     <button type="submit">提交</button>
   </form>
-  <form method="POST">
-    <input type="hidden" name="toggle_train" value="1">
-    <button type="submit">{{ '關閉訓練模式' if training else '啟用訓練模式' }}</button>
+  <form method="POST" action="/toggle">
+    <button type="submit">{{ '關閉訓練模式' if training_mode else '啟動訓練模式' }}</button>
   </form>
-  {% if show_result %}
+  {% if result %}
   <div class="result">
     <p>冠軍號碼：{{ result.champion }}</p>
     <p>預測號碼：{{ result.prediction }}</p>
@@ -64,16 +64,14 @@ html = """
     <p>目前階段：第{{ result.stage }}關</p>
     {% endif %}
   </div>
-  {% else %}
-    <div class="result">
-      <p>已輸入 {{ history_len }} 組，滿 3 組後開始預測。</p>
-    </div>
   {% endif %}
 </body>
 </html>
 """
 
 def generate_prediction():
+    if len(history) < 3:
+        return []
     recent = history[-3:]
     pool = list(range(1, 11))
     freq = {}
@@ -82,14 +80,7 @@ def generate_prediction():
             freq[n] = freq.get(n, 0) + 1
 
     hot = max(freq, key=freq.get)
-    dynamic_hot = recent[-1][0]
-    if dynamic_hot == hot:
-        sorted_freq = sorted(freq.items(), key=lambda x: (-x[1], x[0]))
-        for n, _ in sorted_freq:
-            if n != hot:
-                dynamic_hot = n
-                break
-
+    dynamic_hot = recent[-1][0]  # 上一期冠軍
     cold_candidates = [n for n in pool if n not in freq]
     cold = random.choice(cold_candidates) if cold_candidates else random.choice(pool)
 
@@ -103,26 +94,22 @@ def generate_prediction():
 def index():
     global history, hit_count, total_count, stage, training_mode
     result = None
-    show_result = False
+
+    prediction = generate_prediction() if len(history) >= 3 else []
 
     if request.method == "POST":
-        if 'toggle_train' in request.form:
-            training_mode = not training_mode
-        else:
-            try:
-                nums = [int(request.form.get(f"n{i}")) for i in range(1, 4)]
-                if len(nums) == 3:
-                    history.append(nums)
-            except:
-                return render_template_string(html, result=None, training=training_mode, show_result=False, history_len=len(history))
+        try:
+            nums = [int(request.form.get(f"n{i}")) for i in range(1, 4)]
+        except:
+            return render_template_string(html, result=None, training_mode=training_mode)
 
-    if len(history) >= 3:
-        prediction = generate_prediction()
-        last_input = history[-1]
-        champion = last_input[0]
+        if len(nums) != 3:
+            return render_template_string(html, result=None, training_mode=training_mode)
+
+        champion = nums[0]
         hit = champion in prediction
 
-        if training_mode:
+        if training_mode and len(prediction) > 0:
             total_count += 1
             if hit:
                 hit_count += 1
@@ -139,9 +126,16 @@ def index():
             "total_count": total_count,
             "stage": stage
         }
-        show_result = True
 
-    return render_template_string(html, result=result, training=training_mode, show_result=show_result, history_len=len(history))
+        history.append(nums)  # 資料最後再加入
+
+    return render_template_string(html, result=result, training_mode=training_mode)
+
+@app.route("/toggle", methods=["POST"])
+def toggle():
+    global training_mode
+    training_mode = not training_mode
+    return redirect(url_for("index"))
 
 if __name__ == "__main__":
     app.run(debug=True)
