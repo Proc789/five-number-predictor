@@ -87,18 +87,9 @@ def generate_prediction():
     dynamic_hot = last_champion if last_champion != hot else next((n for n in hot_candidates if n != hot), random.choice([n for n in range(1, 11) if n != hot]))
 
     pool = [n for n in range(1, 11) if n not in (hot, dynamic_hot)]
-    random.shuffle(pool)
+    rands = random.sample(pool, 3)
 
-    prev_random = []
-    if len(predictions) > 0:
-        prev_random = [n for n in predictions[-1] if n not in (hot, dynamic_hot)]
-
-    for _ in range(10):
-        rands = random.sample(pool, 3)
-        if len(set(rands) & set(prev_random)) <= 2:
-            return sorted([hot, dynamic_hot] + rands)
-
-    return sorted([hot, dynamic_hot] + random.sample(pool, 3))
+    return sorted([hot, dynamic_hot] + rands)
 
 TEMPLATE = """
 <!DOCTYPE html>
