@@ -7,7 +7,7 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
   <head>
-    <title>擷取開獎資料測試</title>
+    <title>擷取開獎資料測試<ㄚ/title>
     <meta name='viewport' content='width=device-width, initial-scale=1'>
   </head>
   <body style="max-width: 400px; margin: auto; padding-top: 50px; text-align: center; font-family: sans-serif;">
