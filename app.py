@@ -1,5 +1,6 @@
 from flask import Flask, render_template_string, request, redirect
 import random
+import requests
 
 app = Flask(__name__)
 history = []
@@ -8,6 +9,7 @@ hits = 0
 total = 0
 stage = 1
 training = False
+reuse_prediction = False
 
 TEMPLATE = """
 <!DOCTYPE html>
@@ -56,7 +58,7 @@ TEMPLATE = """
 
 @app.route("/", methods=["GET", "POST"])
 def home():
-    global hits, total, stage, training
+    global hits, total, stage, training, reuse_prediction
     result = None
     last_champion = None
     last_prediction = None
@@ -77,19 +79,26 @@ def home():
                     hit = "命中"
                     if training:
                         hits += 1
+                        total += 1
                         stage = 1
+                        reuse_prediction = False
                 else:
                     hit = "未命中"
                     if training:
                         stage += 1
-
-                if training:
-                    total += 1
+                        total += 1
+                        if stage > 3:
+                            reuse_prediction = False
+                        else:
+                            reuse_prediction = True
 
             if len(history) >= 3:
-                prediction = generate_prediction()
-                predictions.append(prediction)
-                result = prediction
+                if not reuse_prediction:
+                    prediction = generate_prediction()
+                    predictions.append(prediction)
+                    result = prediction
+                else:
+                    result = predictions[-1]
             else:
                 result = "請至少輸入三期資料後才可預測"
 
@@ -105,12 +114,13 @@ def home():
 
 @app.route("/toggle")
 def toggle():
-    global training, hits, total, stage
+    global training, hits, total, stage, reuse_prediction
     training = not training
     if training:
         hits = 0
         total = 0
         stage = 1
+        reuse_prediction = False
     return redirect("/")
 
 def generate_prediction():
@@ -119,7 +129,6 @@ def generate_prediction():
     freq = {n: flat.count(n) for n in set(flat)}
     max_freq = max(freq.values())
     hot_candidates = [n for n in freq if freq[n] == max_freq]
-
     for group in reversed(recent):
         for n in group:
             if n in hot_candidates:
@@ -132,19 +141,11 @@ def generate_prediction():
     last_champion = history[-1][0]
     dynamic_hot = last_champion if last_champion != hot else next((n for n in hot_candidates if n != hot), random.choice([n for n in range(1, 11) if n != hot]))
 
-    # 冷號邏輯（版本B）
-    last_6 = history[-6:] if len(history) >= 6 else history
-    flat6 = [n for group in last_6 for n in group]
-    cold_freq = {n: flat6.count(n) for n in range(1, 11)}
-    min_count = min(cold_freq.values())
-    cold_candidates = [n for n in range(1, 11) if cold_freq[n] == min_count and n not in (hot, dynamic_hot)]
-    cold = random.choice(cold_candidates) if cold_candidates else random.choice([n for n in range(1, 11) if n not in (hot, dynamic_hot)])
-
-    avoid = {hot, dynamic_hot, cold}
+    avoid = {hot, dynamic_hot}
     pool = list(set(range(1, 11)) - avoid)
-    random_part = random.sample(pool, 2)
+    random_part = random.sample(pool, 3)
 
-    return sorted([hot, dynamic_hot, cold] + random_part)
+    return sorted([hot, dynamic_hot] + random_part)
 
 if __name__ == "__main__":
     app.run(debug=True)
