@@ -1,95 +1,135 @@
-from flask import Flask, request, jsonify
+from flask import Flask, render_template_string, request
 
 app = Flask(__name__)
-records = []
-hit_count = 0
-total_count = 0
-streak = 1
-training_mode = True
-last_prediction = []
-last_hit = False
-last_champion = None
+history = []
+predictions = []
+hits = 0
+total = 0
+stage = 1
+training = False
 
-def predict_next(records, last_champion):
-    recent = records[-3:]  # 取近3期
-    champions = [r[0] for r in recent]  # 冠軍號碼列表
+TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+  <title>6碼預測器（保守命中版）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body style="max-width: 400px; margin: auto; padding-top: 50px; text-align: center; font-family: sans-serif;">
+  <h2>6碼預測器（保守命中版）</h2>
+  <form method="POST">
+    <input type="number" name="first" placeholder="冠軍號碼" required style="width: 80%; padding: 8px;"><br><br>
+    <input type="number" name="second" placeholder="亞軍號碼" required style="width: 80%; padding: 8px;"><br><br>
+    <input type="number" name="third" placeholder="季軍號碼" required style="width: 80%; padding: 8px;"><br><br>
+    <button type="submit" style="padding: 10px 20px;">提交</button>
+  </form>
+  <br>
+  <a href="/toggle"><button>{{ toggle_text }}</button></a>
+  {% if training %}
+    <div><strong>訓練中...</strong></div>
+    <div>命中率：{{ stats }}</div>
+    <div>目前階段：第 {{ stage }} 關</div>
+  {% endif %}
+  {% if last_champion %}
+    <br><div><strong>上期冠軍號碼：</strong>{{ last_champion }}</div>
+    <div><strong>是否命中：</strong>{{ hit }}</div>
+    <div><strong>上期預測號碼：</strong>{{ last_prediction }}</div>
+  {% endif %}
+  {% if result %}
+    <br><div><strong>下期預測號碼：</strong>{{ result }}</div>
+  {% endif %}
+  <br>
+  <div style="text-align: left;">
+    <strong>最近輸入紀錄：</strong>
+    <ul>
+      {% for row in history %}
+        <li>{{ row }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+</body>
+</html>
+"""
 
-    # 熱號：近3期冠軍出現次數最多
-    freq = {}
-    for n in champions:
-        freq[n] = freq.get(n, 0) + 1
+@app.route("/", methods=["GET", "POST"])
+def index():
+    global hits, total, stage, training
+    result = None
+    last_champion = None
+    last_prediction = None
+    hit = None
+
+    if request.method == "POST":
+        try:
+            first = int(request.form.get("first"))
+            second = int(request.form.get("second"))
+            third = int(request.form.get("third"))
+            current = [first, second, third]
+            history.append(current)
+
+            if len(predictions) >= 1:
+                last_prediction = predictions[-1]
+                last_champion = current[0]
+                if last_champion in last_prediction:
+                    hit = "命中"
+                    if training:
+                        hits += 1
+                        stage = 1
+                else:
+                    hit = "未命中"
+                    if training:
+                        stage += 1
+
+                if training:
+                    total += 1
+
+            if len(history) >= 3:
+                prediction = generate_prediction()
+                predictions.append(prediction)
+                result = prediction
+            else:
+                result = "請至少輸入三期資料後才可預測"
+
+        except:
+            result = "格式錯誤，請輸入 1~10 的整數"
+
+    toggle_text = "關閉訓練模式" if training else "啟動訓練模式"
+    return render_template_string(TEMPLATE, result=result, history=history[-5:],
+                                  last_champion=last_champion, last_prediction=last_prediction,
+                                  hit=hit, training=training, toggle_text=toggle_text,
+                                  stats=f"{hits} / {total}" if training else None,
+                                  stage=stage if training else None)
+
+@app.route("/toggle")
+def toggle():
+    global training, hits, total, stage
+    training = not training
+    if training:
+        hits = 0
+        total = 0
+        stage = 1
+    return "<script>window.location.href='/'</script>"
+
+def generate_prediction():
+    recent = history[-3:]
+    flat = [n for group in recent for n in group]
+
+    # 熱號：近3期冠軍出現最多的號碼
+    champions = [group[0] for group in recent]
+    freq = {n: champions.count(n) for n in set(champions)}
     hot = max(freq, key=freq.get)
 
-    # 動態熱號：上一期冠軍
+    # 動態熱號：上期冠軍（固定納入）
+    last_champion = history[-1][0]
     dynamic_hot = last_champion
 
-    # 穩定熱門號（近3期前3名出現2次以上）
-    flat = [n for r in recent for n in r]
-    flat_freq = {}
-    for n in flat:
-        flat_freq[n] = flat_freq.get(n, 0) + 1
+    # 出現超過1次的號碼，排除已選
+    flat_freq = {n: flat.count(n) for n in set(flat)}
+    candidates = [n for n, count in flat_freq.items() if count >= 2 and n not in (hot, dynamic_hot)]
 
-    candidates = [int(n) for n, c in flat_freq.items() if c >= 2 and int(n) not in [int(hot), int(dynamic_hot)]]
-    result = list({int(hot), int(dynamic_hot)} | set(candidates[:3]))
-    result = sorted(result)[:5]
-    return result
-
-@app.route("/predict", methods=["POST"])
-def predict():
-    global records, hit_count, total_count, streak
-    global last_prediction, last_hit, last_champion
-
-    data = request.get_json()
-    first, second, third = data.get("first"), data.get("second"), data.get("third")
-    if not all(n in range(1, 11) for n in [first, second, third]):
-        return jsonify({"error": "號碼需為 1–10 之間"}), 400
-
-    new_entry = [first, second, third]
-    records.append(new_entry)
-    if len(records) > 10:
-        records.pop(0)
-
-    last_champion = first
-
-    if first in last_prediction:
-        last_hit = True
-        if training_mode:
-            hit_count += 1
-            streak = 1
-    else:
-        last_hit = False
-        if training_mode:
-            streak += 1
-
-    total_count += 1
-    last_prediction = predict_next(records, last_champion)
-
-    return jsonify({
-        "prediction": last_prediction,
-        "hit": last_hit,
-        "lastChampion": last_champion,
-        "hitCount": hit_count,
-        "totalCount": total_count,
-        "streak": streak
-    })
-
-@app.route("/toggle-training", methods=["POST"])
-def toggle_training():
-    global training_mode
-    training_mode = not training_mode
-    return jsonify({"training": training_mode})
-
-@app.route("/reset", methods=["POST"])
-def reset():
-    global records, hit_count, total_count, streak, last_prediction, last_hit, last_champion
-    records = []
-    hit_count = 0
-    total_count = 0
-    streak = 1
-    last_prediction = []
-    last_hit = False
-    last_champion = None
-    return jsonify({"message": "重置完成"})
+    # 組合號碼：熱號 + 動態熱號 + 候選補碼（最多取5碼）
+    result = list({hot, dynamic_hot} | set(candidates[:3]))
+    return sorted(result[:5])
 
 if __name__ == "__main__":
     app.run(debug=True)
