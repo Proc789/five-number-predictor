@@ -1,4 +1,5 @@
 from flask import Flask, render_template_string, request
+import random
 
 app = Flask(__name__)
 history = []
@@ -7,20 +8,24 @@ hits = 0
 total = 0
 stage = 1
 training = False
+last_random = []
 
 TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>6碼預測器（保守命中版）</title>
+  <title>5碼預測器（平衡補碼版）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body style="max-width: 400px; margin: auto; padding-top: 50px; text-align: center; font-family: sans-serif;">
-  <h2>6碼預測器（保守命中版）</h2>
+  <h2>5碼預測器（平衡補碼版）</h2>
   <form method="POST">
-    <input type="number" name="first" placeholder="冠軍號碼" required style="width: 80%; padding: 8px;"><br><br>
-    <input type="number" name="second" placeholder="亞軍號碼" required style="width: 80%; padding: 8px;"><br><br>
-    <input type="number" name="third" placeholder="季軍號碼" required style="width: 80%; padding: 8px;"><br><br>
+    <input type="number" name="first" id="first" placeholder="冠軍號碼" required min="0" max="10"
+           style="width: 80%; padding: 8px;" oninput="handleInput(this, 'second')"><br><br>
+    <input type="number" name="second" id="second" placeholder="亞軍號碼" required min="0" max="10"
+           style="width: 80%; padding: 8px;" oninput="handleInput(this, 'third')"><br><br>
+    <input type="number" name="third" id="third" placeholder="季軍號碼" required min="0" max="10"
+           style="width: 80%; padding: 8px;"><br><br>
     <button type="submit" style="padding: 10px 20px;">提交</button>
   </form>
   <br>
@@ -47,13 +52,32 @@ TEMPLATE = """
       {% endfor %}
     </ul>
   </div>
+
+  <script>
+    function handleInput(current, nextId) {
+      let val = parseInt(current.value);
+      if (val === 0) {
+        current.value = 10;
+        setTimeout(() => {
+          document.getElementById(nextId).focus();
+        }, 50);
+        return;
+      }
+      if (current.value.length >= 1 && val >= 1 && val <= 10) {
+        document.getElementById(nextId).focus();
+      } else if (val > 10 || val < 0 || isNaN(val)) {
+        if (navigator.vibrate) navigator.vibrate(200);
+        current.value = '';
+      }
+    }
+  </script>
 </body>
 </html>
 """
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    global hits, total, stage, training
+    global hits, total, stage, training, last_random
     result = None
     last_champion = None
     last_prediction = None
@@ -64,6 +88,10 @@ def index():
             first = int(request.form.get("first"))
             second = int(request.form.get("second"))
             third = int(request.form.get("third"))
+            first = 10 if first == 0 else first
+            second = 10 if second == 0 else second
+            third = 10 if third == 0 else third
+
             current = [first, second, third]
             history.append(current)
 
@@ -79,12 +107,11 @@ def index():
                     hit = "未命中"
                     if training:
                         stage += 1
-
                 if training:
                     total += 1
 
             if len(history) >= 3:
-                prediction = generate_prediction()
+                prediction, last_random = generate_prediction(last_random)
                 predictions.append(prediction)
                 result = prediction
             else:
@@ -110,35 +137,48 @@ def toggle():
         stage = 1
     return "<script>window.location.href='/'</script>"
 
-def generate_prediction():
+def generate_prediction(prev_random):
     recent = history[-3:]
-    flat = [n for group in recent for n in group]
+    flat = [n for r in recent for n in r]
 
-    # 熱號：近3期冠軍出現最多的號碼
-    champions = [group[0] for group in recent]
-    freq = {n: champions.count(n) for n in set(champions)}
-    hot = max(freq, key=freq.get)
+    # 熱號
+    freq = {n: flat.count(n) for n in set(flat)}
+    max_count = max(freq.values())
+    hot_candidates = [n for n in freq if freq[n] == max_count]
+    for group in reversed(recent):
+        for n in group:
+            if n in hot_candidates:
+                hot = n
+                break
+        else:
+            continue
+        break
 
-    # 動態熱號：上期冠軍（固定納入）
+    # 動態熱號
     last_champion = history[-1][0]
-    dynamic_hot = last_champion
+    dynamic_hot = last_champion if last_champion != hot else next(
+        (n for n in hot_candidates if n != hot),
+        random.choice([n for n in range(1, 11) if n != hot])
+    )
 
-    # 出現2次以上的熱門號（排除已選）
-    flat_freq = {n: flat.count(n) for n in set(flat)}
-    candidates = [n for n, count in flat_freq.items() if count >= 2 and n not in (hot, dynamic_hot)]
+    # 候選熱門碼（近3期中出現2次以上，排除熱/動熱）
+    candidate_freq = {n: flat.count(n) for n in set(flat)}
+    candidates = [n for n in candidate_freq if candidate_freq[n] >= 2 and n not in (hot, dynamic_hot)]
+    pick = candidates[:1]  # 最多只挑一個
 
-    # 依照出現頻率排序補足剩餘號碼
-    others = [n for n in sorted(flat_freq, key=flat_freq.get, reverse=True)
-              if n not in (hot, dynamic_hot) and n not in candidates]
+    # 剩下補隨機碼，排除已選，避免重複過多
+    used = set([hot, dynamic_hot] + pick)
+    pool = [n for n in range(1, 11) if n not in used]
+    random.shuffle(pool)
 
-    result = list({hot, dynamic_hot} | set(candidates))
-    for n in others:
-        if len(result) >= 6:
+    # 控制隨機碼與上一期最多重複2個
+    for _ in range(10):
+        rands = sorted(random.sample(pool, 5 - len(used)))
+        if len(set(rands) & set(prev_random)) <= 2:
             break
-        if n not in result:
-            result.append(n)
 
-    return sorted(result[:6])
+    final = sorted([hot, dynamic_hot] + pick + rands)
+    return final, rands
 
 if __name__ == "__main__":
     app.run(debug=True)
