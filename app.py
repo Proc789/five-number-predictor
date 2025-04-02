@@ -123,24 +123,22 @@ def generate_prediction():
     last_champion = history[-1][0]
     dynamic_hot = last_champion
 
-    # 出現2次以上的熱門號，排除已選
+    # 出現2次以上的熱門號（排除已選）
     flat_freq = {n: flat.count(n) for n in set(flat)}
     candidates = [n for n, count in flat_freq.items() if count >= 2 and n not in (hot, dynamic_hot)]
 
-    # 如果候選不夠，就補上次熱門（最多出現的前三名前三名中出現次數高者）
+    # 依照出現頻率排序補足剩餘號碼
     others = [n for n in sorted(flat_freq, key=flat_freq.get, reverse=True)
               if n not in (hot, dynamic_hot) and n not in candidates]
 
-    # 組合號碼
     result = list({hot, dynamic_hot} | set(candidates))
     for n in others:
-        if len(result) >= 5:
+        if len(result) >= 6:
             break
         if n not in result:
             result.append(n)
 
-    return sorted(result[:5])
-
+    return sorted(result[:6])
 
 if __name__ == "__main__":
     app.run(debug=True)
