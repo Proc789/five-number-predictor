@@ -82,6 +82,7 @@ def home():
                     hit = "未命中"
                     if training:
                         stage += 1
+
                 if training:
                     total += 1
 
@@ -118,6 +119,7 @@ def generate_prediction():
     freq = {n: flat.count(n) for n in set(flat)}
     max_freq = max(freq.values())
     hot_candidates = [n for n in freq if freq[n] == max_freq]
+
     for group in reversed(recent):
         for n in group:
             if n in hot_candidates:
@@ -130,11 +132,19 @@ def generate_prediction():
     last_champion = history[-1][0]
     dynamic_hot = last_champion if last_champion != hot else next((n for n in hot_candidates if n != hot), random.choice([n for n in range(1, 11) if n != hot]))
 
-    avoid = {hot, dynamic_hot}
-    pool = list(set(range(1, 11)) - avoid)
-    random_part = random.sample(pool, 3)
+    # 冷號邏輯（版本B）
+    last_6 = history[-6:] if len(history) >= 6 else history
+    flat6 = [n for group in last_6 for n in group]
+    cold_freq = {n: flat6.count(n) for n in range(1, 11)}
+    min_count = min(cold_freq.values())
+    cold_candidates = [n for n in range(1, 11) if cold_freq[n] == min_count and n not in (hot, dynamic_hot)]
+    cold = random.choice(cold_candidates) if cold_candidates else random.choice([n for n in range(1, 11) if n not in (hot, dynamic_hot)])
 
-    return sorted([hot, dynamic_hot] + random_part)
+    avoid = {hot, dynamic_hot, cold}
+    pool = list(set(range(1, 11)) - avoid)
+    random_part = random.sample(pool, 2)
+
+    return sorted([hot, dynamic_hot, cold] + random_part)
 
 if __name__ == "__main__":
     app.run(debug=True)
