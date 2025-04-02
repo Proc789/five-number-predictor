@@ -1,6 +1,5 @@
 from flask import Flask, render_template_string, request, redirect
 import random
-import requests
 
 app = Flask(__name__)
 history = []
@@ -9,7 +8,7 @@ hits = 0
 total = 0
 stage = 1
 training = False
-reuse_prediction = False
+reuse_count = 0
 
 TEMPLATE = """
 <!DOCTYPE html>
@@ -58,7 +57,7 @@ TEMPLATE = """
 
 @app.route("/", methods=["GET", "POST"])
 def home():
-    global hits, total, stage, training, reuse_prediction
+    global hits, total, stage, training, reuse_count
     result = None
     last_champion = None
     last_prediction = None
@@ -79,26 +78,27 @@ def home():
                     hit = "命中"
                     if training:
                         hits += 1
-                        total += 1
                         stage = 1
-                        reuse_prediction = False
+                        reuse_count = 0
                 else:
                     hit = "未命中"
                     if training:
                         stage += 1
-                        total += 1
-                        if stage > 3:
-                            reuse_prediction = False
-                        else:
-                            reuse_prediction = True
+                        reuse_count += 1
 
+                if training:
+                    total += 1
+
+            # 更新預測號碼邏輯
             if len(history) >= 3:
-                if not reuse_prediction:
+                if reuse_count >= 3:
+                    reuse_count = 0
                     prediction = generate_prediction()
                     predictions.append(prediction)
-                    result = prediction
-                else:
-                    result = predictions[-1]
+                elif len(predictions) == 0:
+                    prediction = generate_prediction()
+                    predictions.append(prediction)
+                result = predictions[-1]
             else:
                 result = "請至少輸入三期資料後才可預測"
 
@@ -114,13 +114,12 @@ def home():
 
 @app.route("/toggle")
 def toggle():
-    global training, hits, total, stage, reuse_prediction
+    global training, hits, total, stage
     training = not training
     if training:
         hits = 0
         total = 0
         stage = 1
-        reuse_prediction = False
     return redirect("/")
 
 def generate_prediction():
