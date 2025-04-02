@@ -1,5 +1,6 @@
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string, request, redirect
 import random
+import requests
 
 app = Flask(__name__)
 history = []
@@ -8,6 +9,51 @@ hits = 0
 total = 0
 stage = 1
 training = False
+
+TEMPLATE = """
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>6 號碼預測器</title>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+  </head>
+  <body style="max-width: 400px; margin: auto; padding-top: 50px; text-align: center; font-family: sans-serif;">
+    <h2>6 號碼預測器</h2>
+    <form method="POST">
+      <div>
+        <input type="number" name="first" placeholder="冠軍號碼" required style="width: 80%; padding: 8px;"><br><br>
+        <input type="number" name="second" placeholder="亞軍號碼" required style="width: 80%; padding: 8px;"><br><br>
+        <input type="number" name="third" placeholder="季軍號碼" required style="width: 80%; padding: 8px;"><br><br>
+        <button type="submit" style="padding: 10px 20px;">提交</button>
+      </div>
+    </form>
+    <br>
+    <a href="/toggle"><button>{{ toggle_text }}</button></a>
+    {% if training %}
+      <div><strong>訓練中...</strong></div>
+      <div>命中率：{{ stats }}</div>
+      <div>目前階段：第 {{ stage }} 關</div>
+    {% endif %}
+    {% if last_champion %}
+      <br><div><strong>上期冠軍號碼：</strong>{{ last_champion }}</div>
+      <div><strong>是否命中：</strong>{{ hit }}</div>
+      <div><strong>上期預測號碼：</strong>{{ last_prediction }}</div>
+    {% endif %}
+    {% if result %}
+      <br><div><strong>下期預測號碼：</strong> {{ result }}</div>
+    {% endif %}
+    <br>
+    <div style="text-align: left;">
+      <strong>最近輸入紀錄：</strong>
+      <ul>
+        {% for row in history %}
+          <li>{{ row }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </body>
+</html>
+"""
 
 @app.route("/", methods=["GET", "POST"])
 def home():
@@ -66,7 +112,7 @@ def toggle():
         hits = 0
         total = 0
         stage = 1
-    return "<script>window.location.href='/'</script>"
+    return redirect("/")
 
 def generate_prediction():
     recent = history[-3:]
@@ -86,55 +132,11 @@ def generate_prediction():
     last_champion = history[-1][0]
     dynamic_hot = last_champion if last_champion != hot else next((n for n in hot_candidates if n != hot), random.choice([n for n in range(1, 11) if n != hot]))
 
-    pool = [n for n in range(1, 11) if n not in (hot, dynamic_hot)]
-    rands = random.sample(pool, 3)
+    avoid = {hot, dynamic_hot}
+    pool = list(set(range(1, 11)) - avoid)
+    random_part = random.sample(pool, 3)
 
-    return sorted([hot, dynamic_hot] + rands)
-
-TEMPLATE = """
-<!DOCTYPE html>
-<html>
-  <head>
-    <title>5 號碼預測器</title>
-    <meta name='viewport' content='width=device-width, initial-scale=1'>
-  </head>
-  <body style="max-width: 400px; margin: auto; padding-top: 50px; text-align: center; font-family: sans-serif;">
-    <h2>5 號碼預測器</h2>
-    <form method="POST">
-      <div>
-        <input type="number" name="first" placeholder="冠軍號碼" required style="width: 80%; padding: 8px;"><br><br>
-        <input type="number" name="second" placeholder="亞軍號碼" required style="width: 80%; padding: 8px;"><br><br>
-        <input type="number" name="third" placeholder="季軍號碼" required style="width: 80%; padding: 8px;"><br><br>
-        <button type="submit" style="padding: 10px 20px;">提交</button>
-      </div>
-    </form>
-    <br>
-    <a href="/toggle"><button>{{ toggle_text }}</button></a>
-    {% if training %}
-      <div><strong>訓練中...</strong></div>
-      <div>命中率：{{ stats }}</div>
-      <div>目前階段：第 {{ stage }} 關</div>
-    {% endif %}
-    {% if last_champion %}
-      <br><div><strong>上期冠軍號碼：</strong>{{ last_champion }}</div>
-      <div><strong>是否命中：</strong>{{ hit }}</div>
-      <div><strong>上期預測號碼：</strong>{{ last_prediction }}</div>
-    {% endif %}
-    {% if result %}
-      <br><div><strong>下期預測號碼：</strong> {{ result }}</div>
-    {% endif %}
-    <br>
-    <div style="text-align: left;">
-      <strong>最近輸入紀錄：</strong>
-      <ul>
-        {% for row in history %}
-          <li>{{ row }}</li>
-        {% endfor %}
-      </ul>
-    </div>
-  </body>
-</html>
-"""
+    return sorted([hot, dynamic_hot] + random_part)
 
 if __name__ == "__main__":
     app.run(debug=True)
