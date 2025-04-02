@@ -8,23 +8,21 @@ hits = 0
 total = 0
 stage = 1
 training = False
+last_random_set = []
 
 TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>6碼預測器</title>
+  <title>5碼預測器</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body style="max-width: 400px; margin: auto; padding-top: 50px; text-align: center; font-family: sans-serif;">
-  <h2>6碼預測器</h2>
+  <h2>5碼預測器</h2>
   <form method="POST">
-    <input type="number" name="first" placeholder="第1名號碼" required style="width: 80%; padding: 8px;"><br><br>
-    <input type="number" name="second" placeholder="第2名號碼" required style="width: 80%; padding: 8px;"><br><br>
-    <input type="number" name="third" placeholder="第3名號碼" required style="width: 80%; padding: 8px;"><br><br>
-    <input type="number" name="eighth" placeholder="第8名號碼" required style="width: 80%; padding: 8px;"><br><br>
-    <input type="number" name="ninth" placeholder="第9名號碼" required style="width: 80%; padding: 8px;"><br><br>
-    <input type="number" name="tenth" placeholder="第10名號碼" required style="width: 80%; padding: 8px;"><br><br>
+    <input type="number" name="first" placeholder="冠軍號碼" required style="width: 80%; padding: 8px;"><br><br>
+    <input type="number" name="second" placeholder="亞軍號碼" required style="width: 80%; padding: 8px;"><br><br>
+    <input type="number" name="third" placeholder="季軍號碼" required style="width: 80%; padding: 8px;"><br><br>
     <button type="submit" style="padding: 10px 20px;">提交</button>
   </form>
   <br>
@@ -68,10 +66,7 @@ def index():
             first = int(request.form.get("first"))
             second = int(request.form.get("second"))
             third = int(request.form.get("third"))
-            eighth = int(request.form.get("eighth"))
-            ninth = int(request.form.get("ninth"))
-            tenth = int(request.form.get("tenth"))
-            current = [first, second, third, eighth, ninth, tenth]
+            current = [first, second, third]
             history.append(current)
 
             if len(predictions) >= 1:
@@ -118,33 +113,36 @@ def toggle():
     return "<script>window.location.href='/'</script>"
 
 def generate_prediction():
-    # 取得最近一期輸入的 6 個號碼（第1,2,3,8,9,10名）
-    last = history[-1]  # [first, second, third, eighth, ninth, tenth]
+    global last_random_set
+    recent = history[-3:]
+    flat = [n for group in recent for n in group]
 
-    champion = last[0]
-    result = [champion]
+    freq = {n: flat.count(n) for n in set(flat)}
+    sorted_by_freq = sorted(freq.items(), key=lambda x: (-x[1], -last_seen_index(x[0], history)))
+    hot = sorted_by_freq[0][0]
 
-    # 延伸選號來源（第2、3、8、9名）
-    candidate_pool = [last[1], last[2], last[3], last[4]]
+    last_champion = history[-1][0]
+    dynamic_hot = last_champion if last_champion != hot else next((n for n, _ in sorted_by_freq if n != hot), random.choice([n for n in range(1, 11) if n != hot]))
 
-    # 第10名納入機率：30%
-    if random.random() < 0.3:
-        if last[5] != champion:
-            candidate_pool.append(last[5])
+    exclude = {hot, dynamic_hot}
+    pool = [n for n in range(1, 11) if n not in exclude]
 
-    # 避免與冠軍重複
-    candidate_pool = [n for n in candidate_pool if n != champion]
+    attempts = 0
+    while True:
+        random_set = random.sample(pool, 3)
+        if len(set(random_set) & set(last_random_set)) <= 2 or attempts >= 10:
+            break
+        attempts += 1
 
-    # 從候選池中隨機選3碼
-    extend_nums = random.sample(candidate_pool, min(3, len(candidate_pool)))
-    result.extend(extend_nums)
+    last_random_set = random_set
 
-    # 從1~10中排除已選號碼，再隨機補2碼
-    remaining = [n for n in range(1, 11) if n not in result]
-    final_random = random.sample(remaining, 2) if len(remaining) >= 2 else remaining
-    result.extend(final_random)
+    return sorted([hot, dynamic_hot] + random_set)
 
-    return sorted(result)
+def last_seen_index(num, history):
+    for i in range(len(history) - 1, -1, -1):
+        if num in history[i]:
+            return i
+    return -1
 
 if __name__ == "__main__":
     app.run(debug=True)
