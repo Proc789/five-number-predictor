@@ -9,15 +9,22 @@ last_random = []
 source_logs = []
 debug_logs = []
 
+# 命中統計計數器
+hot_hits = 0
+dynamic_hits = 0
+extra_hits = 0
+all_hits = 0
+total_tests = 0
+
 TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（hotplus v1）</title>
+  <title>5碼預測器（hotplus v2）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（hotplus v1）</h2>
+  <h2>5碼預測器（hotplus v2）</h2>
   <form method='POST'>
     <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
     <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
@@ -30,6 +37,14 @@ TEMPLATE = """
       <strong>預測號碼：</strong> {{ prediction }}
     </div>
   {% endif %}
+
+  <div style='margin-top: 20px; text-align: left;'>
+    <strong>命中統計：</strong><br>
+    冠軍命中次數（任一區）：{{ all_hits }} / {{ total_tests }}<br>
+    熱號命中次數：{{ hot_hits }} / {{ total_tests }}<br>
+    動熱命中次數：{{ dynamic_hits }} / {{ total_tests }}<br>
+    補碼命中次數：{{ extra_hits }} / {{ total_tests }}<br>
+  </div>
 
   {% if history_data %}
     <div style='margin-top: 20px; text-align: left;'>
@@ -66,19 +81,15 @@ TEMPLATE = """
 
   <script>
     function moveToNext(current, nextId) {
-      if (current.value === '0') {
-        current.value = '10';
-        setTimeout(() => {
+      setTimeout(() => {
+        if (current.value === '0') {
+          current.value = '10';
+        }
+        let val = parseInt(current.value);
+        if (!isNaN(val) && val >= 1 && val <= 10) {
           document.getElementById(nextId).focus();
-        }, 150);
-        return;
-      }
-      let val = parseInt(current.value);
-      if (!isNaN(val) && val >= 1 && val <= 10) {
-        setTimeout(() => {
-          document.getElementById(nextId).focus();
-        }, 150);
-      }
+        }
+      }, 100);
     }
   </script>
 </body>
@@ -87,7 +98,7 @@ TEMPLATE = """
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    global last_random
+    global last_random, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests
     prediction = None
 
     if request.method == 'POST':
@@ -105,10 +116,10 @@ def index():
                 last_set = history[-2]
                 hot = list(dict.fromkeys(last_set))[:2]
 
-                # 動熱池：最近三期出現次數最多（排除熱號），取前 3
+                # 動熱池：最近三期出現次數最多（排除熱號），取前 4
                 flat = [n for group in recent for n in group if n not in hot]
                 count = Counter(flat)
-                dynamic_pool = [n for n, _ in count.most_common(3)]
+                dynamic_pool = [n for n, _ in count.most_common(4)]
                 dynamic_hot = random.sample(dynamic_pool, k=min(2, len(dynamic_pool)))
 
                 # 補碼：1~10 扣除熱號與動熱後隨機選 1
@@ -124,18 +135,31 @@ def index():
 
                 # 分析命中來源
                 champion = current[0]
+                total_tests += 1
+                hit = False
+
                 if champion in hot:
                     source = f"冠軍號碼 {champion} → 熱號"
                     label = "熱號命中"
+                    hot_hits += 1
+                    hit = True
                 elif champion in dynamic_hot:
                     source = f"冠軍號碼 {champion} → 動熱"
                     label = "動熱命中"
+                    dynamic_hits += 1
+                    hit = True
                 elif champion in extra:
                     source = f"冠軍號碼 {champion} → 補碼"
                     label = "補碼命中"
+                    extra_hits += 1
+                    hit = True
                 else:
                     source = f"冠軍號碼 {champion} → 其他"
                     label = "未命中"
+
+                if hit:
+                    all_hits += 1
+
                 source_logs.append(source)
 
                 # 除錯紀錄
@@ -150,7 +174,12 @@ def index():
         prediction=prediction,
         history_data=history[-10:],
         result_log=source_logs[-10:],
-        debug_log=debug_logs[-10:])
+        debug_log=debug_logs[-10:],
+        hot_hits=hot_hits,
+        dynamic_hits=dynamic_hits,
+        extra_hits=extra_hits,
+        all_hits=all_hits,
+        total_tests=total_tests)
 
 if __name__ == '__main__':
     app.run(debug=True)
