@@ -1,4 +1,93 @@
-# 以下為修正後關鍵段落（前略與 TEMPLATE 相同）
+from flask import Flask, render_template_string, request
+import random
+
+app = Flask(__name__)
+history = []
+predictions = []
+hits = 0
+total = 0
+stage = 1
+training = False
+last_random = []
+hit_source_counter = {
+    "熱號": 0,
+    "動熱": 0,
+    "候選碼": 0,
+    "補碼": 0
+}
+
+TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+  <title>5碼預測器（平衡補碼版）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body style="max-width: 400px; margin: auto; padding-top: 50px; text-align: center; font-family: sans-serif;">
+  <h2>5碼預測器（平衡補碼版）</h2>
+  <form method="POST">
+    <input type="number" name="first" id="first" placeholder="冠軍號碼" required min="0" max="10"
+           style="width: 80%; padding: 8px;" oninput="handleInput(this, 'second')"><br><br>
+    <input type="number" name="second" id="second" placeholder="亞軍號碼" required min="0" max="10"
+           style="width: 80%; padding: 8px;" oninput="handleInput(this, 'third')"><br><br>
+    <input type="number" name="third" id="third" placeholder="季軍號碼" required min="0" max="10"
+           style="width: 80%; padding: 8px;"><br><br>
+    <button type="submit" style="padding: 10px 20px;">提交</button>
+  </form>
+  <br>
+  <a href="/toggle"><button>{{ toggle_text }}</button></a>
+  {% if training %}
+    <div><strong>訓練中...</strong></div>
+    <div>命中率：{{ stats }}</div>
+    <div>目前階段：第 {{ stage }} 關</div>
+    <div style="margin-top: 10px;">
+      <strong>命中來源統計：</strong>
+      <ul style="list-style: none; padding-left: 0;">
+        {% for k, v in hit_sources.items() %}
+          <li>{{ k }}：{{ v }} 次</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+  {% if last_champion %}
+    <br><div><strong>上期冠軍號碼：</strong>{{ last_champion }}</div>
+    <div><strong>是否命中：</strong>{{ hit }}</div>
+    <div><strong>上期預測號碼：</strong>{{ last_prediction }}</div>
+  {% endif %}
+  {% if result %}
+    <br><div><strong>下期預測號碼：</strong>{{ result }}</div>
+  {% endif %}
+  <br>
+  <div style="text-align: left;">
+    <strong>最近輸入紀錄：</strong>
+    <ul>
+      {% for row in history %}
+        <li>{{ row }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <script>
+    function handleInput(current, nextId) {
+      let val = parseInt(current.value);
+      if (val === 0) {
+        current.value = 10;
+        setTimeout(() => {
+          document.getElementById(nextId).focus();
+        }, 50);
+        return;
+      }
+      if (current.value.length >= 1 && val >= 1 && val <= 10) {
+        document.getElementById(nextId).focus();
+      } else if (val > 10 || val < 0 || isNaN(val)) {
+        if (navigator.vibrate) navigator.vibrate(200);
+        current.value = '';
+      }
+    }
+  </script>
+</body>
+</html>
+"""
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -75,4 +164,52 @@ def index():
                                   stage=stage if training else None,
                                   hit_sources=hit_source_counter if training else {})
 
-# /toggle 與 generate_prediction 保持原樣
+@app.route("/toggle")
+def toggle():
+    global training, hits, total, stage, hit_source_counter
+    training = not training
+    if training:
+        hits = 0
+        total = 0
+        stage = 1
+        hit_source_counter = {k: 0 for k in hit_source_counter}
+    return "<script>window.location.href='/'</script>"
+
+def generate_prediction(prev_random):
+    recent = history[-3:]
+    flat = [n for r in recent for n in r]
+
+    freq = {n: flat.count(n) for n in set(flat)}
+    max_count = max(freq.values())
+    hot_candidates = [n for n in freq if freq[n] == max_count]
+    for group in reversed(recent):
+        for n in group:
+            if n in hot_candidates:
+                hot = n
+                break
+        else:
+            continue
+        break
+
+    last_champion = history[-1][0]
+    dynamic_hot = last_champion if last_champion != hot else next(
+        (n for n in hot_candidates if n != hot),
+        random.choice([n for n in range(1, 11) if n != hot])
+    )
+
+    candidate_freq = {n: flat.count(n) for n in set(flat)}
+    candidates = [n for n in candidate_freq if candidate_freq[n] >= 2 and n not in (hot, dynamic_hot)]
+    pick = candidates[:1]
+
+    fixed = [hot, dynamic_hot] + pick
+    used = set(fixed)
+    pool = [n for n in range(1, 11) if n not in used]
+
+    for _ in range(10):
+        rand_fill = random.sample(pool, 5 - len(fixed))
+        if len(set(rand_fill) & set(prev_random)) <= 2:
+            final = sorted(fixed + rand_fill)
+            return final, rand_fill, (hot, dynamic_hot, pick, rand_fill)
+
+    final = sorted(fixed + rand_fill)
+    return final, rand_fill, (hot, dynamic_hot, pick, rand_fill)
