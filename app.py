@@ -15,16 +15,17 @@ hit_source_counter = {
     "候選碼": 0,
     "補碼": 0
 }
+champion_source_log = []
 
 TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（平衡補碼版）</title>
+  <title>5碼預測器（追蹤冠軍來源版）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body style="max-width: 400px; margin: auto; padding-top: 50px; text-align: center; font-family: sans-serif;">
-  <h2>5碼預測器（平衡補碼版）</h2>
+  <h2>5碼預測器（追蹤冠軍來源版）</h2>
   <form method="POST">
     <input type="number" name="first" id="first" placeholder="冠軍號碼" required min="0" max="10"
            style="width: 80%; padding: 8px;" oninput="handleInput(this, 'second')"><br><br>
@@ -66,7 +67,14 @@ TEMPLATE = """
       {% endfor %}
     </ul>
   </div>
-
+  <div style="text-align: left; margin-top: 20px;">
+    <strong>冠軍來源紀錄：</strong>
+    <ul>
+      {% for entry in champion_log %}
+        <li>第 {{ loop.index }} 期：{{ entry }}</li>
+      {% endfor %}
+    </ul>
+  </div>
   <script>
     function handleInput(current, nextId) {
       let val = parseInt(current.value);
@@ -91,7 +99,7 @@ TEMPLATE = """
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    global hits, total, stage, training, last_random, hit_source_counter
+    global hits, total, stage, training, last_random, hit_source_counter, champion_source_log
     result = None
     last_champion = None
     last_prediction = None
@@ -122,29 +130,35 @@ def index():
                     toggle_text="關閉訓練模式" if training else "啟動訓練模式",
                     stats=f"{hits} / {total}" if training else None,
                     stage=stage if training else None,
-                    hit_sources=hit_source_counter if training else {}
+                    hit_sources=hit_source_counter if training else {},
+                    champion_log=champion_source_log
                 )
 
             if len(predictions) >= 2:
                 last_prediction = predictions[-2]
                 last_champion = current[0]
 
+                hot, dynamic_hot, pick, rand_fill = prediction_parts
+                if last_champion == hot:
+                    champion_source_log.append("熱號")
+                elif last_champion == dynamic_hot:
+                    champion_source_log.append("動熱")
+                else:
+                    champion_source_log.append("其他")
+
                 if last_champion in last_prediction:
                     hit = "命中"
                     if training:
                         hits += 1
                         stage = 1
-
-                        if prediction_parts:
-                            hot, dynamic_hot, pick, rand_fill = prediction_parts
-                            if last_champion == hot:
-                                hit_source_counter["熱號"] += 1
-                            elif last_champion == dynamic_hot:
-                                hit_source_counter["動熱"] += 1
-                            elif last_champion in (pick or []):
-                                hit_source_counter["候選碼"] += 1
-                            elif last_champion in rand_fill:
-                                hit_source_counter["補碼"] += 1
+                        if last_champion == hot:
+                            hit_source_counter["熱號"] += 1
+                        elif last_champion == dynamic_hot:
+                            hit_source_counter["動熱"] += 1
+                        elif last_champion in (pick or []):
+                            hit_source_counter["候選碼"] += 1
+                        elif last_champion in rand_fill:
+                            hit_source_counter["補碼"] += 1
                 else:
                     hit = "未命中"
                     if training:
@@ -162,17 +176,19 @@ def index():
                                   hit=hit, training=training, toggle_text=toggle_text,
                                   stats=f"{hits} / {total}" if training else None,
                                   stage=stage if training else None,
-                                  hit_sources=hit_source_counter if training else {})
+                                  hit_sources=hit_source_counter if training else {},
+                                  champion_log=champion_source_log)
 
 @app.route("/toggle")
 def toggle():
-    global training, hits, total, stage, hit_source_counter
+    global training, hits, total, stage, hit_source_counter, champion_source_log
     training = not training
     if training:
         hits = 0
         total = 0
         stage = 1
         hit_source_counter = {k: 0 for k in hit_source_counter}
+        champion_source_log = []
     return "<script>window.location.href='/'</script>"
 
 def generate_prediction(prev_random):
