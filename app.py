@@ -161,18 +161,25 @@ def generate_prediction(prev_random):
         random.choice([n for n in range(1, 11) if n != hot])
     )
 
-    # 候選熱門碼（近3期中出現2次以上，排除熱/動熱）
+    # 候選熱門碼（出現2次以上，非熱/動熱）
     candidate_freq = {n: flat.count(n) for n in set(flat)}
     candidates = [n for n in candidate_freq if candidate_freq[n] >= 2 and n not in (hot, dynamic_hot)]
-    pick = candidates[:1]  # 最多只挑一個
+    pick = candidates[:1]
 
-    # 剩下補隨機碼，排除已選，避免重複過多
-    used = set([hot, dynamic_hot] + pick)
+    # 已使用：固定保留的前3碼
+    fixed = [hot, dynamic_hot] + pick
+    used = set(fixed)
+
+    # 隨機補碼池
     pool = [n for n in range(1, 11) if n not in used]
-    random.shuffle(pool)
 
-    # 控制隨機碼與上一期最多重複2個
+    # 嘗試產生補碼，避免與上一組重複過多（只檢查補碼與 prev_random 的重疊）
     for _ in range(10):
-        rands = sorted(random.sample(pool, 5 - len(used)))
-        if len(set(rands) & set(prev_random)) <= 2:
-            break
+        rand_fill = random.sample(pool, 5 - len(fixed))
+        if len(set(rand_fill) & set(prev_random)) <= 1:
+            final = sorted(fixed + rand_fill)
+            return final, rand_fill
+
+    # 若都失敗仍回傳最後一組
+    final = sorted(fixed + rand_fill)
+    return final, rand_fill
