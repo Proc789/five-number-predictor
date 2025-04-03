@@ -14,11 +14,11 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（冷號版 v1）</title>
+  <title>5碼預測器（動態熱號優化版 v1）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body style="max-width: 400px; margin: auto; padding-top: 50px; text-align: center; font-family: sans-serif;">
-  <h2>5碼預測器（冷號版 v1）</h2>
+  <h2>5碼預測器（動態熱號優化版 v1）</h2>
   <form method="POST">
     <input type="number" name="first" id="first" placeholder="冠軍號碼" required min="0" max="10"
            style="width: 80%; padding: 8px;" oninput="handleInput(this, 'second')"><br><br>
@@ -154,37 +154,36 @@ def generate_prediction(prev_random):
             continue
         break
 
-    # 動態熱號
+    # 動態熱號（優化版）
     last_champion = history[-1][0]
-    dynamic_hot = last_champion if last_champion != hot else next(
-        (n for n in hot_candidates if n != hot),
-        random.choice([n for n in range(1, 11) if n != hot])
-    )
+    if last_champion != hot:
+        dynamic_hot = last_champion
+    else:
+        non_hot = [n for n in sorted(freq, key=freq.get, reverse=True) if n != hot]
+        recent2 = [n for r in history[-2:] for n in r]
+        dynamic_pool = [n for n in non_hot if n in recent2]
+
+        if dynamic_pool:
+            dynamic_hot = dynamic_pool[0]
+        else:
+            dynamic_hot = random.choice([n for n in range(1, 11) if n != hot])
 
     # 候選熱門碼
     candidate_freq = {n: flat.count(n) for n in set(flat)}
     candidates = [n for n in candidate_freq if candidate_freq[n] >= 2 and n not in (hot, dynamic_hot)]
     pick = candidates[:1]
 
-    # 冷號（從最近 5 期中沒出現的）
-    last_5 = history[-5:] if len(history) >= 5 else history
-    last_5_numbers = set(n for row in last_5 for n in row)
-    cold_pool = [n for n in range(1, 11) if n not in last_5_numbers and n not in (hot, dynamic_hot) + tuple(pick)]
-    cold = random.choice(cold_pool) if cold_pool else None
-
+    # 已選號碼
     fixed = [hot, dynamic_hot] + pick
-    if cold: fixed.append(cold)
     used = set(fixed)
-
     pool = [n for n in range(1, 11) if n not in used]
 
-    # 補平衡碼（剩1碼），避免與上一期重複太多
+    # 隨機補碼（最多重複1碼）
     for _ in range(10):
         rand_fill = random.sample(pool, 5 - len(fixed))
         if len(set(rand_fill) & set(prev_random)) <= 1:
             final = sorted(fixed + rand_fill)
             return final, rand_fill
 
-    # fallback
     final = sorted(fixed + rand_fill)
     return final, rand_fill
