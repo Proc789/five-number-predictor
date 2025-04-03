@@ -5,7 +5,6 @@ from collections import Counter
 app = Flask(__name__)
 history = []
 predictions = []
-last_random = []
 source_logs = []
 debug_logs = []
 
@@ -20,11 +19,11 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（hotplus v4）</title>
+  <title>5碼預測器（hotplus v4-fixed）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（hotplus v4）</h2>
+  <h2>5碼預測器（hotplus v4-fixed）</h2>
   <form method='POST'>
     <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
     <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
@@ -45,7 +44,7 @@ TEMPLATE = """
 
   <div style='margin-top: 20px; text-align: left;'>
     <strong>命中統計：</strong><br>
-    冠軍命中次數（任一區） ：{{ all_hits }} / {{ total_tests }}<br>
+    冠軍命中次數（任一區）：{{ all_hits }} / {{ total_tests }}<br>
     熱號命中次數：{{ hot_hits }} / {{ total_tests }}<br>
     動熱命中次數：{{ dynamic_hits }} / {{ total_tests }}<br>
     補碼命中次數：{{ extra_hits }} / {{ total_tests }}<br>
@@ -101,9 +100,9 @@ TEMPLATE = """
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    global last_random, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage
+    global hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage
     prediction = None
-    last_prediction = None
+    last_prediction = predictions[-1] if predictions else None
 
     if request.method == 'POST':
         try:
@@ -139,15 +138,12 @@ def index():
 
                 result = sorted(hot + dynamic_hot + extra)
                 prediction = result
-                last_prediction = predictions[-1] if predictions else None
                 predictions.append(result)
-                last_random = result
 
                 champion = current[0]
                 total_tests += 1
 
-                # 正確的命中條件（預測號碼中有冠軍號碼）
-                if champion in prediction:
+                if last_prediction and champion in last_prediction:
                     all_hits += 1
                     current_stage = 1
                 else:
@@ -155,16 +151,16 @@ def index():
 
                 if champion in hot:
                     source = f"冠軍號碼 {champion} → 熱號"
-                    label = "熱號命中"
                     hot_hits += 1
+                    label = "熱號命中"
                 elif champion in dynamic_hot:
                     source = f"冠軍號碼 {champion} → 動熱"
-                    label = "動熱命中"
                     dynamic_hits += 1
+                    label = "動熱命中"
                 elif champion in extra:
                     source = f"冠軍號碼 {champion} → 補碼"
-                    label = "補碼命中"
                     extra_hits += 1
+                    label = "補碼命中"
                 else:
                     source = f"冠軍號碼 {champion} → 其他"
                     label = "未命中"
@@ -173,6 +169,7 @@ def index():
                 debug_logs.append(
                     f"熱號 = {hot} ｜動熱池 = {top_dyn} ｜實際動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
                 )
+
         except:
             prediction = ["格式錯誤"]
 
