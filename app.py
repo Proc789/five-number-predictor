@@ -1,5 +1,4 @@
-# （略過 TEMPLATE 與 /toggle，與之前版本一致）
-# 關鍵修復在 index()
+# 以下為修正後關鍵段落（前略與 TEMPLATE 相同）
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -22,7 +21,6 @@ def index():
             current = [first, second, third]
             history.append(current)
 
-            # 先做預測
             if len(history) >= 3:
                 prediction, last_random, prediction_parts = generate_prediction(last_random)
                 predictions.append(prediction)
@@ -38,7 +36,6 @@ def index():
                     hit_sources=hit_source_counter if training else {}
                 )
 
-            # 命中判定與統計（需要至少兩組預測才判斷）
             if len(predictions) >= 2:
                 last_prediction = predictions[-2]
                 last_champion = current[0]
@@ -55,7 +52,7 @@ def index():
                                 hit_source_counter["熱號"] += 1
                             elif last_champion == dynamic_hot:
                                 hit_source_counter["動熱"] += 1
-                            elif pick and last_champion in pick:
+                            elif last_champion in (pick or []):
                                 hit_source_counter["候選碼"] += 1
                             elif last_champion in rand_fill:
                                 hit_source_counter["補碼"] += 1
@@ -77,3 +74,5 @@ def index():
                                   stats=f"{hits} / {total}" if training else None,
                                   stage=stage if training else None,
                                   hit_sources=hit_source_counter if training else {})
+
+# /toggle 與 generate_prediction 保持原樣
