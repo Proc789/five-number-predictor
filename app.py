@@ -14,7 +14,7 @@ dynamic_hits = 0
 extra_hits = 0
 all_hits = 0
 total_tests = 0
-stage = 1
+current_stage = 1
 
 TEMPLATE = """
 <!DOCTYPE html>
@@ -37,7 +37,6 @@ TEMPLATE = """
       <strong>本期預測號碼：</strong> {{ prediction }}（目前第 {{ stage }} 關）
     </div>
   {% endif %}
-
   {% if last_prediction %}
     <div style='margin-top: 10px;'>
       <strong>上期預測號碼：</strong> {{ last_prediction }}
@@ -46,7 +45,7 @@ TEMPLATE = """
 
   <div style='margin-top: 20px; text-align: left;'>
     <strong>命中統計：</strong><br>
-    冠軍命中次數（任一區）：{{ all_hits }} / {{ total_tests }}<br>
+    冠軍命中次數（任一區） ：{{ all_hits }} / {{ total_tests }}<br>
     熱號命中次數：{{ hot_hits }} / {{ total_tests }}<br>
     動熱命中次數：{{ dynamic_hits }} / {{ total_tests }}<br>
     補碼命中次數：{{ extra_hits }} / {{ total_tests }}<br>
@@ -88,9 +87,7 @@ TEMPLATE = """
   <script>
     function moveToNext(current, nextId) {
       setTimeout(() => {
-        if (current.value === '0') {
-          current.value = '10';
-        }
+        if (current.value === '0') current.value = '10';
         let val = parseInt(current.value);
         if (!isNaN(val) && val >= 1 && val <= 10) {
           document.getElementById(nextId).focus();
@@ -104,9 +101,9 @@ TEMPLATE = """
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    global last_random, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, stage
+    global last_random, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage
     prediction = None
-    last_prediction = predictions[-1] if predictions else None
+    last_prediction = None
 
     if request.method == 'POST':
         try:
@@ -142,45 +139,49 @@ def index():
 
                 result = sorted(hot + dynamic_hot + extra)
                 prediction = result
+                last_prediction = predictions[-1] if predictions else None
                 predictions.append(result)
                 last_random = result
 
                 champion = current[0]
                 total_tests += 1
                 hit = False
-                if champion in prediction:
-                    stage = 1
-                    all_hits += 1
+                if champion in result:
+                    hit = True
+                    current_stage = 1
                 else:
-                    stage += 1
+                    current_stage += 1
 
                 if champion in hot:
                     source = f"冠軍號碼 {champion} → 熱號"
-                    hot_hits += 1
                     label = "熱號命中"
+                    hot_hits += 1
                 elif champion in dynamic_hot:
                     source = f"冠軍號碼 {champion} → 動熱"
-                    dynamic_hits += 1
                     label = "動熱命中"
+                    dynamic_hits += 1
                 elif champion in extra:
                     source = f"冠軍號碼 {champion} → 補碼"
-                    extra_hits += 1
                     label = "補碼命中"
+                    extra_hits += 1
                 else:
                     source = f"冠軍號碼 {champion} → 其他"
                     label = "未命中"
+
+                if hit:
+                    all_hits += 1
 
                 source_logs.append(source)
                 debug_logs.append(
                     f"熱號 = {hot} ｜動熱池 = {top_dyn} ｜實際動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
                 )
-
         except:
             prediction = ["格式錯誤"]
 
     return render_template_string(TEMPLATE,
         prediction=prediction,
         last_prediction=last_prediction,
+        stage=current_stage,
         history_data=history[-10:],
         result_log=source_logs[-10:],
         debug_log=debug_logs[-10:],
@@ -188,8 +189,7 @@ def index():
         dynamic_hits=dynamic_hits,
         extra_hits=extra_hits,
         all_hits=all_hits,
-        total_tests=total_tests,
-        stage=stage)
+        total_tests=total_tests)
 
 if __name__ == '__main__':
     app.run(debug=True)
