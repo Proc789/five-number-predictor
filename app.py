@@ -23,11 +23,11 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（追蹤冠軍來源 v2）</title>
+  <title>5碼預測器（追蹤冠軍來源 v3）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body style="max-width: 400px; margin: auto; padding-top: 50px; text-align: center; font-family: sans-serif;">
-  <h2>5碼預測器（追蹤冠軍來源 v2）</h2>
+  <h2>5碼預測器（追蹤冠軍來源 v3）</h2>
   <form method="POST">
     <input type="number" name="first" id="first" placeholder="冠軍號碼" required min="0" max="10"
            style="width: 80%; padding: 8px;" oninput="handleInput(this, 'second')"><br><br>
@@ -81,7 +81,7 @@ TEMPLATE = """
     <strong>預測號碼組成來源紀錄：</strong>
     <ul>
       {% for entry in prediction_log %}
-        <li>第 {{ loop.index }} 期：熱號 {{ entry.hot }}，動熱 {{ entry.dynamic_hot }}，候選 {{ entry.pick }}，補碼 {{ entry.rand_fill }}</li>
+        <li>第 {{ loop.index }} 期：{{ entry }}</li>
       {% endfor %}
     </ul>
   </div>
@@ -134,10 +134,20 @@ def index():
                 result = prediction
 
                 hot, dynamic_hot, pick, rand_fill = prediction_parts
-                prediction_source_log.append({
-                    "hot": hot, "dynamic_hot": dynamic_hot,
-                    "pick": pick, "rand_fill": rand_fill
-                })
+
+                # 實際分類預測號碼
+                classification = {"熱號": [], "動熱": [], "候選碼": [], "補碼": []}
+                for n in prediction:
+                    if n == hot:
+                        classification["熱號"].append(n)
+                    elif n == dynamic_hot:
+                        classification["動熱"].append(n)
+                    elif n in (pick or []):
+                        classification["候選碼"].append(n)
+                    elif n in rand_fill:
+                        classification["補碼"].append(n)
+
+                prediction_source_log.append(classification)
             else:
                 result = "請至少輸入三期資料後才可預測"
                 return render_template_string(
