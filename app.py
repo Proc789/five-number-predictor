@@ -14,8 +14,7 @@ dynamic_hits = 0
 extra_hits = 0
 all_hits = 0
 total_tests = 0
-fail_streak = 0
-last_prediction = []
+stage = 1
 
 TEMPLATE = """
 <!DOCTYPE html>
@@ -35,8 +34,7 @@ TEMPLATE = """
 
   {% if prediction %}
     <div style='margin-top: 20px;'>
-      <strong>本期預測號碼：</strong> {{ prediction }}
-      {% if fail_streak > 0 %}（目前第 {{ fail_streak + 1 }} 關）{% endif %}
+      <strong>本期預測號碼：</strong> {{ prediction }}（目前第 {{ stage }} 關）
     </div>
   {% endif %}
 
@@ -106,8 +104,9 @@ TEMPLATE = """
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    global last_random, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, fail_streak, last_prediction
+    global last_random, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, stage
     prediction = None
+    last_prediction = predictions[-1] if predictions else None
 
     if request.method == 'POST':
         try:
@@ -119,34 +118,22 @@ def index():
 
             if len(history) >= 4:
                 recent = history[-4:-1]
-                top_nums = [n for group in recent for n in group]
-                freq = Counter(top_nums)
-                max_freq = max(freq.values())
-                hot_candidates = [n for n in freq if freq[n] == max_freq]
-                for group in reversed(recent):
-                    for n in group:
-                        if n in hot_candidates:
-                            hot1 = n
-                            break
-                    else:
-                        continue
-                    break
-                hot2 = next((n for n in sorted(freq, key=lambda x: -freq[x]) if n != hot1), None)
-                hot = [hot1] + ([hot2] if hot2 else [])
+                last_set = history[-2]
+                hot = list(dict.fromkeys(last_set))[:2]
 
                 flat = [n for group in recent for n in group if n not in hot]
-                count = Counter(flat)
+                freq = Counter(flat)
                 recency = {}
                 for i in range(len(history)-2, max(len(history)-5, -1), -1):
                     for n in history[i]:
                         if n not in hot and n not in recency:
                             recency[n] = len(history) - i
-                scored = {n: count[n]*2 + (6 - recency.get(n, 6)) for n in count}
+                scored = {n: freq[n]*2 + (6 - recency.get(n, 6)) for n in freq}
                 top_dyn = sorted(scored, key=lambda x: -scored[x])[:4]
                 dynamic_hot = random.sample(top_dyn, k=min(2, len(top_dyn)))
 
                 used = set(hot + dynamic_hot)
-                appeared = {n for g in history[-5:] for n in g}
+                appeared = {n for g in history[-6:] for n in g}
                 pool = [n for n in range(1, 11) if n not in used and n in appeared]
                 if not pool:
                     pool = [n for n in range(1, 11) if n not in used]
@@ -155,35 +142,33 @@ def index():
 
                 result = sorted(hot + dynamic_hot + extra)
                 prediction = result
-                last_prediction = predictions[-1] if predictions else []
                 predictions.append(result)
                 last_random = result
 
                 champion = current[0]
                 total_tests += 1
-                hit = champion in result
+                hit = False
+                if champion in prediction:
+                    stage = 1
+                    all_hits += 1
+                else:
+                    stage += 1
 
                 if champion in hot:
                     source = f"冠軍號碼 {champion} → 熱號"
-                    label = "熱號命中"
                     hot_hits += 1
+                    label = "熱號命中"
                 elif champion in dynamic_hot:
                     source = f"冠軍號碼 {champion} → 動熱"
-                    label = "動熱命中"
                     dynamic_hits += 1
+                    label = "動熱命中"
                 elif champion in extra:
                     source = f"冠軍號碼 {champion} → 補碼"
-                    label = "補碼命中"
                     extra_hits += 1
+                    label = "補碼命中"
                 else:
                     source = f"冠軍號碼 {champion} → 其他"
                     label = "未命中"
-
-                if hit:
-                    all_hits += 1
-                    fail_streak = 0
-                else:
-                    fail_streak += 1
 
                 source_logs.append(source)
                 debug_logs.append(
@@ -204,7 +189,7 @@ def index():
         extra_hits=extra_hits,
         all_hits=all_hits,
         total_tests=total_tests,
-        fail_streak=fail_streak)
+        stage=stage)
 
 if __name__ == '__main__':
     app.run(debug=True)
