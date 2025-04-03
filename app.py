@@ -14,11 +14,11 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（平衡補碼版）</title>
+  <title>5碼預測器（冷號版 v1）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body style="max-width: 400px; margin: auto; padding-top: 50px; text-align: center; font-family: sans-serif;">
-  <h2>5碼預測器（平衡補碼版）</h2>
+  <h2>5碼預測器（冷號版 v1）</h2>
   <form method="POST">
     <input type="number" name="first" id="first" placeholder="冠軍號碼" required min="0" max="10"
            style="width: 80%; padding: 8px;" oninput="handleInput(this, 'second')"><br><br>
@@ -161,25 +161,30 @@ def generate_prediction(prev_random):
         random.choice([n for n in range(1, 11) if n != hot])
     )
 
-    # 候選熱門碼（出現2次以上，非熱/動熱）
+    # 候選熱門碼
     candidate_freq = {n: flat.count(n) for n in set(flat)}
     candidates = [n for n in candidate_freq if candidate_freq[n] >= 2 and n not in (hot, dynamic_hot)]
     pick = candidates[:1]
 
-    # 已使用：固定保留的前3碼
+    # 冷號（從最近 5 期中沒出現的）
+    last_5 = history[-5:] if len(history) >= 5 else history
+    last_5_numbers = set(n for row in last_5 for n in row)
+    cold_pool = [n for n in range(1, 11) if n not in last_5_numbers and n not in (hot, dynamic_hot) + tuple(pick)]
+    cold = random.choice(cold_pool) if cold_pool else None
+
     fixed = [hot, dynamic_hot] + pick
+    if cold: fixed.append(cold)
     used = set(fixed)
 
-    # 隨機補碼池
     pool = [n for n in range(1, 11) if n not in used]
 
-    # 嘗試產生補碼，避免與上一組重複過多（只檢查補碼與 prev_random 的重疊）
+    # 補平衡碼（剩1碼），避免與上一期重複太多
     for _ in range(10):
         rand_fill = random.sample(pool, 5 - len(fixed))
         if len(set(rand_fill) & set(prev_random)) <= 1:
             final = sorted(fixed + rand_fill)
             return final, rand_fill
 
-    # 若都失敗仍回傳最後一組
+    # fallback
     final = sorted(fixed + rand_fill)
     return final, rand_fill
