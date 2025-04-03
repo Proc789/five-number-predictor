@@ -15,6 +15,7 @@ extra_hits = 0
 all_hits = 0
 total_tests = 0
 fail_streak = 0
+last_prediction = []
 
 TEMPLATE = """
 <!DOCTYPE html>
@@ -34,8 +35,14 @@ TEMPLATE = """
 
   {% if prediction %}
     <div style='margin-top: 20px;'>
-      <strong>預測號碼：</strong> {{ prediction }}
+      <strong>本期預測號碼：</strong> {{ prediction }}
       {% if fail_streak > 0 %}（目前第 {{ fail_streak + 1 }} 關）{% endif %}
+    </div>
+  {% endif %}
+
+  {% if last_prediction %}
+    <div style='margin-top: 10px;'>
+      <strong>上期預測號碼：</strong> {{ last_prediction }}
     </div>
   {% endif %}
 
@@ -99,7 +106,7 @@ TEMPLATE = """
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    global last_random, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, fail_streak
+    global last_random, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, fail_streak, last_prediction
     prediction = None
 
     if request.method == 'POST':
@@ -111,7 +118,6 @@ def index():
             history.append(current)
 
             if len(history) >= 4:
-                # 熱號（v2邏輯）：取近3期前三名中出現最多的2碼
                 recent = history[-4:-1]
                 top_nums = [n for group in recent for n in group]
                 freq = Counter(top_nums)
@@ -128,7 +134,6 @@ def index():
                 hot2 = next((n for n in sorted(freq, key=lambda x: -freq[x]) if n != hot1), None)
                 hot = [hot1] + ([hot2] if hot2 else [])
 
-                # 動熱（加權）：出現次數 * 2 + 越近加分
                 flat = [n for group in recent for n in group if n not in hot]
                 count = Counter(flat)
                 recency = {}
@@ -140,7 +145,6 @@ def index():
                 top_dyn = sorted(scored, key=lambda x: -scored[x])[:4]
                 dynamic_hot = random.sample(top_dyn, k=min(2, len(top_dyn)))
 
-                # 補碼（排除極冷）：近5期曾出現且不在熱/動熱中
                 used = set(hot + dynamic_hot)
                 appeared = {n for g in history[-5:] for n in g}
                 pool = [n for n in range(1, 11) if n not in used and n in appeared]
@@ -151,29 +155,26 @@ def index():
 
                 result = sorted(hot + dynamic_hot + extra)
                 prediction = result
+                last_prediction = predictions[-1] if predictions else []
                 predictions.append(result)
                 last_random = result
 
-                # 命中判定
                 champion = current[0]
                 total_tests += 1
-                hit = False
+                hit = champion in result
 
                 if champion in hot:
                     source = f"冠軍號碼 {champion} → 熱號"
                     label = "熱號命中"
                     hot_hits += 1
-                    hit = True
                 elif champion in dynamic_hot:
                     source = f"冠軍號碼 {champion} → 動熱"
                     label = "動熱命中"
                     dynamic_hits += 1
-                    hit = True
                 elif champion in extra:
                     source = f"冠軍號碼 {champion} → 補碼"
                     label = "補碼命中"
                     extra_hits += 1
-                    hit = True
                 else:
                     source = f"冠軍號碼 {champion} → 其他"
                     label = "未命中"
@@ -194,6 +195,7 @@ def index():
 
     return render_template_string(TEMPLATE,
         prediction=prediction,
+        last_prediction=last_prediction,
         history_data=history[-10:],
         result_log=source_logs[-10:],
         debug_log=debug_logs[-10:],
