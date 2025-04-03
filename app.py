@@ -11,38 +11,54 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼分析器（動熱池版本）</title>
+  <title>5碼分析器（動熱池 v2）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body style="max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;">
-  <h2>5碼預測器（動熱池版本）</h2>
+  <h2>5碼預測器（動熱池 v2）</h2>
   <form method="POST">
-    <input name="first" placeholder="冠軍" required style="width: 80%; padding: 8px;"><br><br>
-    <input name="second" placeholder="亞軍" required style="width: 80%; padding: 8px;"><br><br>
-    <input name="third" placeholder="季軍" required style="width: 80%; padding: 8px;"><br><br>
+    <input name="first" id="first" placeholder="冠軍" required style="width: 80%; padding: 8px;" oninput="moveToNext(this, 'second')"><br><br>
+    <input name="second" id="second" placeholder="亞軍" required style="width: 80%; padding: 8px;" oninput="moveToNext(this, 'third')"><br><br>
+    <input name="third" id="third" placeholder="季軍" required style="width: 80%; padding: 8px;"><br><br>
     <button type="submit" style="padding: 10px 20px;">提交</button>
   </form>
+
   {% if prediction %}
     <div style="margin-top: 20px;">
       <strong>預測號碼：</strong> {{ prediction }}
     </div>
   {% endif %}
-  {% if result_log %}
-    <div style="margin-top: 30px; text-align: left;">
-      <strong>來源紀錄（冠軍號碼分類）：</strong>
+
+  {% if history_data %}
+    <div style="margin-top: 20px; text-align: left;">
+      <strong>最近輸入紀錄：</strong>
       <ul>
-        {% for row in result_log %}
-          <li>{{ row }}</li>
+        {% for row in history_data %}
+          <li>第 {{ loop.index }} 期：{{ row }}</li>
         {% endfor %}
       </ul>
     </div>
   {% endif %}
+
+  {% if result_log %}
+    <div style="margin-top: 20px; text-align: left;">
+      <strong>來源紀錄（冠軍號碼分類）：</strong>
+      <ul>
+        {% for row in result_log %}
+          <li>第 {{ loop.index }} 期：{{ row }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
   <script>
-    document.querySelectorAll('input').forEach(inp => {
-      inp.addEventListener('input', () => {
-        if (inp.value === '0') inp.value = '10';
-      });
-    });
+    function moveToNext(current, nextId) {
+      const val = parseInt(current.value);
+      if (val === 0) current.value = 10;
+      if (!isNaN(val) && val >= 1 && val <= 10) {
+        document.getElementById(nextId).focus();
+      }
+    }
   </script>
 </body>
 </html>
@@ -65,17 +81,11 @@ def index():
                 recent = history[-3:]
                 flat = [n for group in recent for n in group]
 
-                # 熱號：上一期冠軍
                 hot = recent[-1][0]
-
-                # 動熱池：最近 3 期中出現兩次以上，排除熱號
                 freq = {n: flat.count(n) for n in set(flat)}
                 dynamic_pool = [n for n, c in freq.items() if c >= 2 and n != hot]
-
-                # 其他號碼 = 1~10 扣掉熱號與動熱池
                 others = [n for n in range(1, 11) if n not in [hot] + dynamic_pool]
 
-                # 從每個池中選號
                 selected = [hot]
                 if dynamic_pool:
                     selected.append(random.choice(dynamic_pool))
@@ -92,7 +102,6 @@ def index():
                 predictions.append(selected)
                 last_random = selected
 
-                # 判斷來源
                 champion = current[0]
                 if champion == hot:
                     source = f"冠軍號碼 {champion} → 熱號"
@@ -107,6 +116,7 @@ def index():
 
     return render_template_string(TEMPLATE,
         prediction=prediction,
+        history_data=history[-10:],
         result_log=source_logs[-10:])
 
 if __name__ == "__main__":
