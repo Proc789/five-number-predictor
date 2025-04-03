@@ -9,7 +9,6 @@ last_random = []
 source_logs = []
 debug_logs = []
 
-# 命中統計計數器
 hot_hits = 0
 dynamic_hits = 0
 extra_hits = 0
@@ -20,11 +19,11 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（hotplus v2）</title>
+  <title>5碼預測器（hotplus v3）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（hotplus v2）</h2>
+  <h2>5碼預測器（hotplus v3）</h2>
   <form method='POST'>
     <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
     <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
@@ -110,34 +109,37 @@ def index():
             history.append(current)
 
             if len(history) >= 4:
-                recent = history[-4:-1]  # 最近三期
-
-                # 熱號：上一期的前三名中取 2 碼
+                recent = history[-4:-1]
                 last_set = history[-2]
                 hot = list(dict.fromkeys(last_set))[:2]
 
-                # 動熱池：最近三期出現次數最多（排除熱號），取前 4
                 flat = [n for group in recent for n in group if n not in hot]
-                count = Counter(flat)
-                dynamic_pool = [n for n, _ in count.most_common(4)]
-                dynamic_hot = random.sample(dynamic_pool, k=min(2, len(dynamic_pool)))
+                freq = Counter(flat)
+                recency = {}
+                for i in range(len(history)-2, max(len(history)-5, -1), -1):
+                    for n in history[i]:
+                        if n not in hot and n not in recency:
+                            recency[n] = len(history) - i
+                scored = {n: freq[n]*2 + (6 - recency.get(n, 6)) for n in freq}
+                top_dyn = sorted(scored, key=lambda x: -scored[x])[:4]
+                dynamic_hot = random.sample(top_dyn, k=min(2, len(top_dyn)))
 
-                # 補碼：1~10 扣除熱號與動熱後隨機選 1
                 used = set(hot + dynamic_hot)
-                others = [n for n in range(1, 11) if n not in used]
-                random.shuffle(others)
-                extra = others[0:1] if others else []
+                appeared = {n for g in history[-6:] for n in g}
+                pool = [n for n in range(1, 11) if n not in used and n in appeared]
+                if not pool:
+                    pool = [n for n in range(1, 11) if n not in used]
+                random.shuffle(pool)
+                extra = pool[:1] if pool else []
 
                 result = sorted(hot + dynamic_hot + extra)
                 prediction = result
                 predictions.append(result)
                 last_random = result
 
-                # 分析命中來源
                 champion = current[0]
                 total_tests += 1
                 hit = False
-
                 if champion in hot:
                     source = f"冠軍號碼 {champion} → 熱號"
                     label = "熱號命中"
@@ -156,15 +158,12 @@ def index():
                 else:
                     source = f"冠軍號碼 {champion} → 其他"
                     label = "未命中"
-
                 if hit:
                     all_hits += 1
 
                 source_logs.append(source)
-
-                # 除錯紀錄
                 debug_logs.append(
-                    f"熱號 = {hot} ｜動熱池 = {dynamic_pool} ｜實際動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
+                    f"熱號 = {hot} ｜動熱池 = {top_dyn} ｜實際動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
                 )
 
         except:
