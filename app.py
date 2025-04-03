@@ -1,12 +1,14 @@
-# （前略，與上一版相同）
-# 中間程式碼不變，包括 TEMPLATE、訓練切換等
+# （略過 TEMPLATE 與 /toggle，與之前版本一致）
+# 關鍵修復在 index()
 
+@app.route("/", methods=["GET", "POST"])
 def index():
     global hits, total, stage, training, last_random, hit_source_counter
     result = None
     last_champion = None
     last_prediction = None
     hit = None
+    prediction_parts = None
 
     if request.method == "POST":
         try:
@@ -20,6 +22,7 @@ def index():
             current = [first, second, third]
             history.append(current)
 
+            # 先做預測
             if len(history) >= 3:
                 prediction, last_random, prediction_parts = generate_prediction(last_random)
                 predictions.append(prediction)
@@ -35,30 +38,32 @@ def index():
                     hit_sources=hit_source_counter if training else {}
                 )
 
-            # 命中判定區塊
-            last_prediction = predictions[-2] if len(predictions) >= 2 else None
-            last_champion = current[0]
+            # 命中判定與統計（需要至少兩組預測才判斷）
+            if len(predictions) >= 2:
+                last_prediction = predictions[-2]
+                last_champion = current[0]
 
-            if last_prediction:
                 if last_champion in last_prediction:
                     hit = "命中"
                     if training:
                         hits += 1
                         stage = 1
 
-                        hot, dynamic_hot, pick, rand_fill = prediction_parts
-                        if last_champion == hot:
-                            hit_source_counter["熱號"] += 1
-                        elif last_champion == dynamic_hot:
-                            hit_source_counter["動熱"] += 1
-                        elif pick and last_champion in pick:
-                            hit_source_counter["候選碼"] += 1
-                        elif last_champion in rand_fill:
-                            hit_source_counter["補碼"] += 1
+                        if prediction_parts:
+                            hot, dynamic_hot, pick, rand_fill = prediction_parts
+                            if last_champion == hot:
+                                hit_source_counter["熱號"] += 1
+                            elif last_champion == dynamic_hot:
+                                hit_source_counter["動熱"] += 1
+                            elif pick and last_champion in pick:
+                                hit_source_counter["候選碼"] += 1
+                            elif last_champion in rand_fill:
+                                hit_source_counter["補碼"] += 1
                 else:
                     hit = "未命中"
                     if training:
                         stage += 1
+
                 if training:
                     total += 1
 
@@ -72,5 +77,3 @@ def index():
                                   stats=f"{hits} / {total}" if training else None,
                                   stage=stage if training else None,
                                   hit_sources=hit_source_counter if training else {})
-
-# 其餘部分（/toggle 與 generate_prediction）不變
