@@ -161,24 +161,21 @@ def generate_prediction(prev_random):
         random.choice([n for n in range(1, 11) if n != hot])
     )
 
-    # 候選熱門碼（近3期中出現2次以上，排除熱/動熱）
+    # 候選熱門碼
     candidate_freq = {n: flat.count(n) for n in set(flat)}
     candidates = [n for n in candidate_freq if candidate_freq[n] >= 2 and n not in (hot, dynamic_hot)]
-    pick = candidates[:1]  # 最多只挑一個
+    pick = candidates[:1]
 
-    # 剩下補隨機碼，排除已選，避免重複過多
+    # 準備 pool（平衡補碼用）
     used = set([hot, dynamic_hot] + pick)
     pool = [n for n in range(1, 11) if n not in used]
-    random.shuffle(pool)
 
-    # 控制隨機碼與上一期最多重複2個
+    # 嘗試產生組合，避免與上期預測碼過度重複
     for _ in range(10):
-        rands = sorted(random.sample(pool, 5 - len(used)))
-        if len(set(rands) & set(prev_random)) <= 2:
-            break
+        random_fill = random.sample(pool, 5 - len(used))
+        candidate = sorted(list(used) + random_fill)
+        if len(set(candidate) & set(prev_random)) <= 2:
+            return candidate, random_fill
 
-    final = sorted([hot, dynamic_hot] + pick + rands)
-    return final, rands
-
-if __name__ == "__main__":
-    app.run(debug=True)
+    # 若失敗，仍回傳最後一組
+    return candidate, random_fill
