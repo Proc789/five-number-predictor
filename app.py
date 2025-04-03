@@ -4,104 +4,45 @@ import random
 app = Flask(__name__)
 history = []
 predictions = []
-hits = 0
-total = 0
-stage = 1
-training = False
 last_random = []
-hit_source_counter = {
-    "熱號": 0,
-    "動熱": 0,
-    "候選碼": 0,
-    "補碼": 0,
-    "其他": 0
-}
-champion_source_log = []
-prediction_source_log = []
+source_logs = []
 
 TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（追蹤冠軍來源 v3）</title>
+  <title>5碼分析器（動熱池版本）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
-<body style="max-width: 400px; margin: auto; padding-top: 50px; text-align: center; font-family: sans-serif;">
-  <h2>5碼預測器（追蹤冠軍來源 v3）</h2>
+<body style="max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;">
+  <h2>5碼預測器（動熱池版本）</h2>
   <form method="POST">
-    <input type="number" name="first" id="first" placeholder="冠軍號碼" required min="0" max="10"
-           style="width: 80%; padding: 8px;" oninput="handleInput(this, 'second')"><br><br>
-    <input type="number" name="second" id="second" placeholder="亞軍號碼" required min="0" max="10"
-           style="width: 80%; padding: 8px;" oninput="handleInput(this, 'third')"><br><br>
-    <input type="number" name="third" id="third" placeholder="季軍號碼" required min="0" max="10"
-           style="width: 80%; padding: 8px;"><br><br>
+    <input name="first" placeholder="冠軍" required style="width: 80%; padding: 8px;"><br><br>
+    <input name="second" placeholder="亞軍" required style="width: 80%; padding: 8px;"><br><br>
+    <input name="third" placeholder="季軍" required style="width: 80%; padding: 8px;"><br><br>
     <button type="submit" style="padding: 10px 20px;">提交</button>
   </form>
-  <br>
-  <a href="/toggle"><button>{{ toggle_text }}</button></a>
-  {% if training %}
-    <div><strong>訓練中...</strong></div>
-    <div>命中率：{{ stats }}</div>
-    <div>目前階段：第 {{ stage }} 關</div>
-    <div style="margin-top: 10px;">
-      <strong>命中來源統計：</strong>
-      <ul style="list-style: none; padding-left: 0;">
-        {% for k, v in hit_sources.items() %}
-          <li>{{ k }}：{{ v }} 次</li>
+  {% if prediction %}
+    <div style="margin-top: 20px;">
+      <strong>預測號碼：</strong> {{ prediction }}
+    </div>
+  {% endif %}
+  {% if result_log %}
+    <div style="margin-top: 30px; text-align: left;">
+      <strong>來源紀錄（冠軍號碼分類）：</strong>
+      <ul>
+        {% for row in result_log %}
+          <li>{{ row }}</li>
         {% endfor %}
       </ul>
     </div>
   {% endif %}
-  {% if last_champion %}
-    <br><div><strong>上期冠軍號碼：</strong>{{ last_champion }}</div>
-    <div><strong>是否命中：</strong>{{ hit }}</div>
-    <div><strong>上期預測號碼：</strong>{{ last_prediction }}</div>
-  {% endif %}
-  {% if result %}
-    <br><div><strong>下期預測號碼：</strong>{{ result }}</div>
-  {% endif %}
-  <br>
-  <div style="text-align: left;">
-    <strong>最近輸入紀錄：</strong>
-    <ul>
-      {% for row in history %}
-        <li>{{ row }}</li>
-      {% endfor %}
-    </ul>
-  </div>
-  <div style="text-align: left; margin-top: 20px;">
-    <strong>冠軍來源紀錄：</strong>
-    <ul>
-      {% for entry in champion_log %}
-        <li>第 {{ loop.index }} 期：{{ entry }}</li>
-      {% endfor %}
-    </ul>
-  </div>
-  <div style="text-align: left; margin-top: 20px;">
-    <strong>預測號碼組成來源紀錄：</strong>
-    <ul>
-      {% for entry in prediction_log %}
-        <li>第 {{ loop.index }} 期：{{ entry }}</li>
-      {% endfor %}
-    </ul>
-  </div>
   <script>
-    function handleInput(current, nextId) {
-      let val = parseInt(current.value);
-      if (val === 0) {
-        current.value = 10;
-        setTimeout(() => {
-          document.getElementById(nextId).focus();
-        }, 50);
-        return;
-      }
-      if (current.value.length >= 1 && val >= 1 && val <= 10) {
-        document.getElementById(nextId).focus();
-      } else if (val > 10 || val < 0 || isNaN(val)) {
-        if (navigator.vibrate) navigator.vibrate(200);
-        current.value = '';
-      }
-    }
+    document.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('input', () => {
+        if (inp.value === '0') inp.value = '10';
+      });
+    });
   </script>
 </body>
 </html>
@@ -109,156 +50,64 @@ TEMPLATE = """
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    global hits, total, stage, training, last_random, hit_source_counter, champion_source_log, prediction_source_log
-    result = None
-    last_champion = None
-    last_prediction = None
-    hit = None
-    prediction_parts = None
+    global last_random
+    prediction = None
 
     if request.method == "POST":
         try:
-            first = int(request.form.get("first"))
-            second = int(request.form.get("second"))
-            third = int(request.form.get("third"))
-            first = 10 if first == 0 else first
-            second = 10 if second == 0 else second
-            third = 10 if third == 0 else third
-
+            first = int(request.form['first']) or 10
+            second = int(request.form['second']) or 10
+            third = int(request.form['third']) or 10
             current = [first, second, third]
             history.append(current)
 
             if len(history) >= 3:
-                prediction, last_random, prediction_parts = generate_prediction(last_random, history[-3:])
-                predictions.append(prediction)
-                result = prediction
+                recent = history[-3:]
+                flat = [n for group in recent for n in group]
 
-                hot, dynamic_hot, pick, rand_fill = prediction_parts
+                # 熱號：上一期冠軍
+                hot = recent[-1][0]
 
-                # 實際分類預測號碼
-                classification = {"熱號": [], "動熱": [], "候選碼": [], "補碼": []}
-                for n in prediction:
-                    if n == hot:
-                        classification["熱號"].append(n)
-                    elif n == dynamic_hot:
-                        classification["動熱"].append(n)
-                    elif n in (pick or []):
-                        classification["候選碼"].append(n)
-                    elif n in rand_fill:
-                        classification["補碼"].append(n)
+                # 動熱池：最近 3 期中出現兩次以上，排除熱號
+                freq = {n: flat.count(n) for n in set(flat)}
+                dynamic_pool = [n for n, c in freq.items() if c >= 2 and n != hot]
 
-                prediction_source_log.append(classification)
-            else:
-                result = "請至少輸入三期資料後才可預測"
-                return render_template_string(
-                    TEMPLATE, result=result, history=history[-5:], last_champion=None,
-                    last_prediction=None, hit=None, training=training,
-                    toggle_text="關閉訓練模式" if training else "啟動訓練模式",
-                    stats=f"{hits} / {total}" if training else None,
-                    stage=stage if training else None,
-                    hit_sources=hit_source_counter if training else {},
-                    champion_log=champion_source_log,
-                    prediction_log=prediction_source_log
-                )
+                # 其他號碼 = 1~10 扣掉熱號與動熱池
+                others = [n for n in range(1, 11) if n not in [hot] + dynamic_pool]
 
-            if len(predictions) >= 2:
-                last_prediction = predictions[-2]
-                last_champion = current[0]
+                # 從每個池中選號
+                selected = [hot]
+                if dynamic_pool:
+                    selected.append(random.choice(dynamic_pool))
+                if len(selected) < 5:
+                    pool = [n for n in others if n not in selected]
+                    random.shuffle(pool)
+                    for n in pool:
+                        if len(set(last_random) & set(selected + [n])) <= 2:
+                            selected.append(n)
+                        if len(selected) == 5:
+                            break
+                selected = sorted(selected)
+                prediction = selected
+                predictions.append(selected)
+                last_random = selected
 
-                hot, dynamic_hot, pick, rand_fill = prediction_parts
-                if last_champion == hot:
-                    champion_source_log.append("熱號")
-                elif last_champion == dynamic_hot:
-                    champion_source_log.append("動熱")
-                elif last_champion in (pick or []):
-                    champion_source_log.append("候選碼")
-                elif last_champion in rand_fill:
-                    champion_source_log.append("補碼")
+                # 判斷來源
+                champion = current[0]
+                if champion == hot:
+                    source = f"冠軍號碼 {champion} → 熱號"
+                elif champion in dynamic_pool:
+                    source = f"冠軍號碼 {champion} → 動熱池"
                 else:
-                    champion_source_log.append("其他")
-
-                if last_champion in last_prediction:
-                    hit = "命中"
-                    if training:
-                        hits += 1
-                        stage = 1
-                        if last_champion == hot:
-                            hit_source_counter["熱號"] += 1
-                        elif last_champion == dynamic_hot:
-                            hit_source_counter["動熱"] += 1
-                        elif last_champion in (pick or []):
-                            hit_source_counter["候選碼"] += 1
-                        elif last_champion in rand_fill:
-                            hit_source_counter["補碼"] += 1
-                        else:
-                            hit_source_counter["其他"] += 1
-                else:
-                    hit = "未命中"
-                    if training:
-                        stage += 1
-                if training:
-                    total += 1
+                    source = f"冠軍號碼 {champion} → 其他"
+                source_logs.append(source)
 
         except:
-            result = "格式錯誤，請輸入 1~10 的整數"
+            prediction = ["格式錯誤"]
 
-    toggle_text = "關閉訓練模式" if training else "啟動訓練模式"
-    return render_template_string(TEMPLATE, result=result, history=history[-5:],
-                                  last_champion=last_champion, last_prediction=last_prediction,
-                                  hit=hit, training=training, toggle_text=toggle_text,
-                                  stats=f"{hits} / {total}" if training else None,
-                                  stage=stage if training else None,
-                                  hit_sources=hit_source_counter if training else {},
-                                  champion_log=champion_source_log,
-                                  prediction_log=prediction_source_log)
+    return render_template_string(TEMPLATE,
+        prediction=prediction,
+        result_log=source_logs[-10:])
 
-@app.route("/toggle")
-def toggle():
-    global training, hits, total, stage, hit_source_counter, champion_source_log, prediction_source_log
-    training = not training
-    if training:
-        hits = 0
-        total = 0
-        stage = 1
-        hit_source_counter = {k: 0 for k in hit_source_counter}
-        champion_source_log = []
-        prediction_source_log = []
-    return "<script>window.location.href='/'</script>"
-
-def generate_prediction(prev_random, recent):
-    flat = [n for r in recent for n in r]
-
-    freq = {n: flat.count(n) for n in set(flat)}
-    max_count = max(freq.values())
-    hot_candidates = [n for n in freq if freq[n] == max_count]
-    for group in reversed(recent):
-        for n in group:
-            if n in hot_candidates:
-                hot = n
-                break
-        else:
-            continue
-        break
-
-    last_champion = recent[-1][0]
-    dynamic_hot = last_champion if last_champion != hot else next(
-        (n for n in hot_candidates if n != hot),
-        random.choice([n for n in range(1, 11) if n != hot])
-    )
-
-    candidate_freq = {n: flat.count(n) for n in set(flat)}
-    candidates = [n for n in candidate_freq if candidate_freq[n] >= 2 and n not in (hot, dynamic_hot)]
-    pick = candidates[:1]
-
-    fixed = [hot, dynamic_hot] + pick
-    used = set(fixed)
-    pool = [n for n in range(1, 11) if n not in used]
-
-    for _ in range(10):
-        rand_fill = random.sample(pool, 5 - len(fixed))
-        if len(set(rand_fill) & set(prev_random)) <= 2:
-            final = sorted(fixed + rand_fill)
-            return final, rand_fill, (hot, dynamic_hot, pick, rand_fill)
-
-    final = sorted(fixed + rand_fill)
-    return final, rand_fill, (hot, dynamic_hot, pick, rand_fill)
+if __name__ == "__main__":
+    app.run(debug=True)
