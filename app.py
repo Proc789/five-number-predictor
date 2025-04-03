@@ -19,11 +19,11 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（hotplus v4-fixed）</title>
+  <title>5碼預測器（hotplus v2）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（hotplus v4-fixed）</h2>
+  <h2>5碼預測器（hotplus v2）</h2>
   <form method='POST'>
     <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
     <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
@@ -112,29 +112,23 @@ def index():
             current = [first, second, third]
             history.append(current)
 
-            if len(history) >= 4:
-                recent = history[-4:-1]
-                last_set = history[-2]
-                hot = list(dict.fromkeys(last_set))[:2]
-
-                flat = [n for group in recent for n in group if n not in hot]
+            if len(history) >= 3:
+                recent = history[-3:]
+                flat = [n for group in recent for n in group]
                 freq = Counter(flat)
-                recency = {}
-                for i in range(len(history)-2, max(len(history)-5, -1), -1):
-                    for n in history[i]:
-                        if n not in hot and n not in recency:
-                            recency[n] = len(history) - i
-                scored = {n: freq[n]*2 + (6 - recency.get(n, 6)) for n in freq}
-                top_dyn = sorted(scored, key=lambda x: -scored[x])[:4]
-                dynamic_hot = random.sample(top_dyn, k=min(2, len(top_dyn)))
+                top_hot = sorted(freq.items(), key=lambda x: (-x[1], -flat[::-1].index(x[0])))[:3]
+                hot_pool = [n for n, _ in top_hot]
+                hot = random.sample(hot_pool, k=min(2, len(hot_pool)))
+
+                flat_dynamic = [n for group in recent for n in group if n not in hot]
+                freq_dyn = Counter(flat_dynamic)
+                dynamic_pool = sorted(freq_dyn, key=lambda x: (-freq_dyn[x], -flat_dynamic[::-1].index(x)))[:3]
+                dynamic_hot = random.sample(dynamic_pool, k=min(2, len(dynamic_pool)))
 
                 used = set(hot + dynamic_hot)
-                appeared = {n for g in history[-6:] for n in g}
-                pool = [n for n in range(1, 11) if n not in used and n in appeared]
-                if not pool:
-                    pool = [n for n in range(1, 11) if n not in used]
+                pool = [n for n in range(1, 11) if n not in used]
                 random.shuffle(pool)
-                extra = pool[:1] if pool else []
+                extra = pool[:1]
 
                 result = sorted(hot + dynamic_hot + extra)
                 prediction = result
@@ -150,24 +144,20 @@ def index():
                     current_stage += 1
 
                 if champion in hot:
-                    source = f"冠軍號碼 {champion} → 熱號"
                     hot_hits += 1
                     label = "熱號命中"
                 elif champion in dynamic_hot:
-                    source = f"冠軍號碼 {champion} → 動熱"
                     dynamic_hits += 1
                     label = "動熱命中"
                 elif champion in extra:
-                    source = f"冠軍號碼 {champion} → 補碼"
                     extra_hits += 1
                     label = "補碼命中"
                 else:
-                    source = f"冠軍號碼 {champion} → 其他"
                     label = "未命中"
 
-                source_logs.append(source)
+                source_logs.append(f"冠軍號碼 {champion} → {label}")
                 debug_logs.append(
-                    f"熱號 = {hot} ｜動熱池 = {top_dyn} ｜實際動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
+                    f"熱號 = {hot} ｜動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
                 )
 
         except:
