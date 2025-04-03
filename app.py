@@ -6,16 +6,17 @@ history = []
 predictions = []
 last_random = []
 source_logs = []
+debug_logs = []
 
 TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼分析器（動熱池 v2）</title>
+  <title>5碼分析器（動熱池 v3）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 </head>
 <body style="max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;">
-  <h2>5碼預測器（動熱池 v2）</h2>
+  <h2>5碼預測器（動熱池 v3）</h2>
   <form method="POST">
     <input name="first" id="first" placeholder="冠軍" required style="width: 80%; padding: 8px;" oninput="moveToNext(this, 'second')"><br><br>
     <input name="second" id="second" placeholder="亞軍" required style="width: 80%; padding: 8px;" oninput="moveToNext(this, 'third')"><br><br>
@@ -51,6 +52,17 @@ TEMPLATE = """
     </div>
   {% endif %}
 
+  {% if debug_log %}
+    <div style="margin-top: 20px; text-align: left; font-size: 13px; color: #555;">
+      <strong>除錯紀錄（每期來源分析）：</strong>
+      <ul>
+        {% for row in debug_log %}
+          <li>第 {{ loop.index }} 期：{{ row }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
   <script>
     function moveToNext(current, nextId) {
       const val = parseInt(current.value);
@@ -77,8 +89,8 @@ def index():
             current = [first, second, third]
             history.append(current)
 
-            if len(history) >= 3:
-                recent = history[-3:]
+            if len(history) >= 4:
+                recent = history[-4:-1]  # 正確取最近三期（不包含當期）
                 flat = [n for group in recent for n in group]
 
                 hot = recent[-1][0]
@@ -87,8 +99,9 @@ def index():
                 others = [n for n in range(1, 11) if n not in [hot] + dynamic_pool]
 
                 selected = [hot]
-                if dynamic_pool:
-                    selected.append(random.choice(dynamic_pool))
+                dynamic_pick = random.choice(dynamic_pool) if dynamic_pool else None
+                if dynamic_pick:
+                    selected.append(dynamic_pick)
                 if len(selected) < 5:
                     pool = [n for n in others if n not in selected]
                     random.shuffle(pool)
@@ -111,13 +124,19 @@ def index():
                     source = f"冠軍號碼 {champion} → 其他"
                 source_logs.append(source)
 
+                # 除錯紀錄加入
+                debug_logs.append(
+                    f"熱號={hot}｜動熱池={dynamic_pool}｜補碼={others}｜冠軍={champion}"
+                )
+
         except:
             prediction = ["格式錯誤"]
 
     return render_template_string(TEMPLATE,
         prediction=prediction,
         history_data=history[-10:],
-        result_log=source_logs[-10:])
+        result_log=source_logs[-10:],
+        debug_log=debug_logs[-10:])
 
 if __name__ == "__main__":
     app.run(debug=True)
