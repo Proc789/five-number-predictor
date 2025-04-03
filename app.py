@@ -145,9 +145,10 @@ def index():
 
                 champion = current[0]
                 total_tests += 1
-                hit = False
-                if champion in result:
-                    hit = True
+
+                # 正確的命中條件（預測號碼中有冠軍號碼）
+                if champion in prediction:
+                    all_hits += 1
                     current_stage = 1
                 else:
                     current_stage += 1
@@ -167,9 +168,6 @@ def index():
                 else:
                     source = f"冠軍號碼 {champion} → 其他"
                     label = "未命中"
-
-                if hit:
-                    all_hits += 1
 
                 source_logs.append(source)
                 debug_logs.append(
