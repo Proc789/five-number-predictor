@@ -19,14 +19,14 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（hotplus v3-強化版）</title>
+  <title>5碼預測器（hotplus v3 強化版）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（hotplus v3-強化版）</h2>
+  <h2>5碼預測器（hotplus v3 強化版）</h2>
   <form method='POST'>
-    <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
-    <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
+    <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="handleInput(this, 'second')"><br><br>
+    <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="handleInput(this, 'third')"><br><br>
     <input name='third' id='third' placeholder='季軍' required style='width: 80%; padding: 8px;'><br><br>
     <button type='submit' style='padding: 10px 20px;'>提交</button>
   </form>
@@ -84,7 +84,7 @@ TEMPLATE = """
   {% endif %}
 
   <script>
-    function moveToNext(current, nextId) {
+    function handleInput(current, nextId) {
       setTimeout(() => {
         if (current.value === '0') current.value = '10';
         let val = parseInt(current.value);
@@ -116,27 +116,33 @@ def index():
                 recent = history[-5:]
                 flat = [n for group in recent for n in group]
                 freq = Counter(flat)
-                recency = {}
-                for i in range(len(history)-1, len(history)-6, -1):
-                    for n in history[i]:
-                        if n not in recency:
-                            recency[n] = len(history) - i
-                scored = {n: freq[n]*2 + (6 - recency.get(n, 6)) for n in freq}
-                hot_pool = sorted(scored, key=lambda x: -scored[x])[:3]
-                hot = random.sample(hot_pool, k=2)
 
-                dyn_flat = [n for group in recent for n in group if n not in hot]
-                dyn_freq = Counter(dyn_flat)
-                dyn_score = {n: dyn_freq[n] + (6 - recency.get(n, 6)) for n in dyn_freq}
-                dyn_pool = sorted(dyn_score, key=lambda x: -dyn_score[x])[:3]
-                dynamic_hot = [random.choice(dyn_pool)] if dyn_pool else []
+                # 熱號邏輯：加權取前3，隨機取2
+                weights = {}
+                for i, group in enumerate(reversed(recent)):
+                    for n in group:
+                        weights[n] = weights.get(n, 0) + 2 + i
+                top_hot = sorted(weights.items(), key=lambda x: -x[1])[:3]
+                hot_pool = [n for n, _ in top_hot]
+                hot = random.sample(hot_pool, k=min(2, len(hot_pool)))
 
+                # 動熱：排除熱號，再加權，取 top3 隨機取1
+                flat_dyn = [n for group in recent for n in group if n not in hot]
+                freq_dyn = Counter(flat_dyn)
+                weights_dyn = {}
+                for i, group in enumerate(reversed(recent)):
+                    for n in group:
+                        if n not in hot:
+                            weights_dyn[n] = weights_dyn.get(n, 0) + 2 + i
+                top_dyn = sorted(weights_dyn.items(), key=lambda x: -x[1])[:3]
+                dynamic_hot = [random.choice([n for n, _ in top_dyn])] if top_dyn else []
+
+                # 補碼：從出現過但不在熱/動熱的號中取
                 used = set(hot + dynamic_hot)
-                recent6 = history[-6:]
-                appeared = {n for g in recent6 for n in g}
-                pool = [n for n in range(1, 11) if n not in used and n in appeared]
+                appeared = [n for g in history[-6:] for n in g if n not in used]
+                pool = list(set(appeared))
                 if len(pool) < 2:
-                    pool += [n for n in range(1, 11) if n not in used and n not in pool]
+                    pool = [n for n in range(1, 11) if n not in used]
                 random.shuffle(pool)
                 extra = pool[:2]
 
@@ -144,6 +150,7 @@ def index():
                 prediction = result
                 predictions.append(result)
 
+                # 命中與紀錄
                 champion = current[0]
                 total_tests += 1
 
@@ -166,9 +173,7 @@ def index():
                     label = "未命中"
 
                 source_logs.append(f"冠軍號碼 {champion} → {label}")
-                debug_logs.append(
-                    f"熱號 = {hot} ｜動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
-                )
+                debug_logs.append(f"熱號 = {hot} ｜動熱池 = {[n for n, _ in top_dyn]} ｜實際動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）")
 
         except:
             prediction = ["格式錯誤"]
