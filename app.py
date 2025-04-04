@@ -4,7 +4,7 @@ from collections import Counter
 
 app = Flask(__name__)
 history = []
-predictions = []
+predictionsㄓ = []
 source_logs = []
 debug_logs = []
 
