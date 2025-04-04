@@ -19,11 +19,11 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（hotplus v2）</title>
+  <title>5碼預測器（hotplus v2-調整版）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（hotplus v2）</h2>
+  <h2>5碼預測器（hotplus v2-調整版）</h2>
   <form method='POST'>
     <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
     <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
@@ -123,12 +123,12 @@ def index():
                 flat_dynamic = [n for group in recent for n in group if n not in hot]
                 freq_dyn = Counter(flat_dynamic)
                 dynamic_pool = sorted(freq_dyn, key=lambda x: (-freq_dyn[x], -flat_dynamic[::-1].index(x)))[:3]
-                dynamic_hot = random.sample(dynamic_pool, k=min(2, len(dynamic_pool)))
+                dynamic_hot = random.sample(dynamic_pool, k=1) if dynamic_pool else []
 
                 used = set(hot + dynamic_hot)
                 pool = [n for n in range(1, 11) if n not in used]
                 random.shuffle(pool)
-                extra = pool[:1]
+                extra = pool[:2]
 
                 result = sorted(hot + dynamic_hot + extra)
                 prediction = result
