@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, request
+om flask import Flask, render_template_string, request
 import random
 from collections import Counter
 
@@ -17,29 +17,26 @@ current_stage = 1
 
 TEMPLATE = """
 <!DOCTYPE html>
-<html>
+<html lang='zh-Hant'>
 <head>
-  <title>5碼預測器（hotplus v2-補碼排除動熱池）</title>
+  <meta charset='UTF-8'>
+  <title>5碼預測器（hotplus v2-補碼強化）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（hotplus v2-補碼排除動熱池）</h2>
+  <h2>5碼預測器（hotplus v2-補碼強化）</h2>
   <form method='POST'>
-    <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
-    <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
-    <input name='third' id='third' placeholder='季軍' required style='width: 80%; padding: 8px;'><br><br>
+    <input name='first' id='first' placeholder='冠軍' required inputmode='numeric' style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
+    <input name='second' id='second' placeholder='亞軍' required inputmode='numeric' style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
+    <input name='third' id='third' placeholder='季軍' required inputmode='numeric' style='width: 80%; padding: 8px;'><br><br>
     <button type='submit' style='padding: 10px 20px;'>提交</button>
   </form>
 
   {% if prediction %}
-    <div style='margin-top: 20px;'>
-      <strong>本期預測號碼：</strong> {{ prediction }}（目前第 {{ stage }} 關）
-    </div>
+    <div style='margin-top: 20px;'><strong>本期預測號碼：</strong> {{ prediction }}（目前第 {{ stage }} 關）</div>
   {% endif %}
   {% if last_prediction %}
-    <div style='margin-top: 10px;'>
-      <strong>上期預測號碼：</strong> {{ last_prediction }}
-    </div>
+    <div style='margin-top: 10px;'><strong>上期預測號碼：</strong> {{ last_prediction }}</div>
   {% endif %}
 
   <div style='margin-top: 20px; text-align: left;'>
@@ -53,33 +50,19 @@ TEMPLATE = """
   {% if history_data %}
     <div style='margin-top: 20px; text-align: left;'>
       <strong>最近輸入紀錄：</strong>
-      <ul>
-        {% for row in history_data %}
-          <li>第 {{ loop.index }} 期：{{ row }}</li>
-        {% endfor %}
-      </ul>
+      <ul>{% for row in history_data %}<li>第 {{ loop.index }} 期：{{ row }}</li>{% endfor %}</ul>
     </div>
   {% endif %}
-
   {% if result_log %}
     <div style='margin-top: 20px; text-align: left;'>
       <strong>來源紀錄（冠軍號碼分類）：</strong>
-      <ul>
-        {% for row in result_log %}
-          <li>第 {{ loop.index }} 期：{{ row }}</li>
-        {% endfor %}
-      </ul>
+      <ul>{% for row in result_log %}<li>第 {{ loop.index }} 期：{{ row }}</li>{% endfor %}</ul>
     </div>
   {% endif %}
-
   {% if debug_log %}
     <div style='margin-top: 20px; text-align: left; font-size: 13px; color: #555;'>
       <strong>除錯紀錄（每期來源分析）：</strong>
-      <ul>
-        {% for row in debug_log %}
-          <li>第 {{ loop.index }} 期：{{ row }}</li>
-        {% endfor %}
-      </ul>
+      <ul>{% for row in debug_log %}<li>第 {{ loop.index }} 期：{{ row }}</li>{% endfor %}</ul>
     </div>
   {% endif %}
 
@@ -98,47 +81,49 @@ TEMPLATE = """
 </html>
 """
 
-@app.route('/', methods=['GET', 'POST'])
+@app.route("/", methods=["GET", "POST"])
 def index():
     global hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage
     prediction = None
     last_prediction = predictions[-1] if predictions else None
 
-    if request.method == 'POST':
+    if request.method == "POST":
         try:
-            first = int(request.form['first']) or 10
-            second = int(request.form['second']) or 10
-            third = int(request.form['third']) or 10
+            first = int(request.form["first"]) or 10
+            second = int(request.form["second"]) or 10
+            third = int(request.form["third"]) or 10
             current = [first, second, third]
             history.append(current)
 
             if len(history) >= 3:
-                # 熱號：上一期隨機取2碼
                 last_set = history[-2]
                 hot = random.sample(last_set, k=2) if len(last_set) >= 2 else last_set
 
-                # 動態熱號：最近3期中，排除熱號後統計
                 recent = history[-3:]
                 flat = [n for g in recent for n in g if n not in hot]
                 freq = Counter(flat)
-                max_freq = max(freq.values()) if freq else 0
-                dynamic_pool = [n for n, c in freq.items() if c == max_freq]
-                dynamic_hot = [random.choice(dynamic_pool)] if dynamic_pool else []
+                dynamic_pool = []
+                if freq:
+                    max_freq = max(freq.values())
+                    dynamic_pool = [n for n, c in freq.items() if c == max_freq]
+                    dynamic_hot = [random.choice(dynamic_pool)]
+                else:
+                    dynamic_hot = []
 
-                # 補碼：從1–10排除 熱號 + 動熱池
-                used = set(hot + dynamic_pool)
+                dynamic_exclude = [n for n in dynamic_pool if n not in dynamic_hot]
+                used = set(hot + dynamic_hot + dynamic_exclude)
                 pool = [n for n in range(1, 11) if n not in used]
                 random.shuffle(pool)
-                extra = pool[:1]
+
+                need_extra = 5 - len(hot + dynamic_hot)
+                extra = pool[:need_extra] if len(pool) >= need_extra else pool + [n for n in range(1, 11) if n not in hot + dynamic_hot + pool][:need_extra - len(pool)]
 
                 result = sorted(hot + dynamic_hot + extra)
                 prediction = result
                 predictions.append(result)
 
-                # 命中與記錄
                 champion = current[0]
                 total_tests += 1
-
                 if last_prediction and champion in last_prediction:
                     all_hits += 1
                     current_stage = 1
@@ -158,9 +143,10 @@ def index():
                     label = "未命中"
 
                 source_logs.append(f"冠軍號碼 {champion} → {label}")
-                debug_logs.append(
-                    f"熱號 = {hot} ｜動熱池 = {dynamic_pool} ｜實際動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
-                )
+                debug_logs.append(f"熱號 = {hot} ｜動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）")
+
+            else:
+                prediction = ["請至少輸入三期資料"]
 
         except:
             prediction = ["格式錯誤"]
@@ -178,5 +164,5 @@ def index():
         all_hits=all_hits,
         total_tests=total_tests)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
