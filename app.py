@@ -19,11 +19,11 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（hotplus v2-補碼剔除動熱池）</title>
+  <title>5碼預測器（hotplus v2-補碼排除動熱池）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（hotplus v2-補碼剔除動熱池）</h2>
+  <h2>5碼預測器（hotplus v2-補碼排除動熱池）</h2>
   <form method='POST'>
     <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
     <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
@@ -76,4 +76,107 @@ TEMPLATE = """
     <div style='margin-top: 20px; text-align: left; font-size: 13px; color: #555;'>
       <strong>除錯紀錄（每期來源分析）：</strong>
       <ul>
-        {% for row
+        {% for row in debug_log %}
+          <li>第 {{ loop.index }} 期：{{ row }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <script>
+    function moveToNext(current, nextId) {
+      setTimeout(() => {
+        if (current.value === '0') current.value = '10';
+        let val = parseInt(current.value);
+        if (!isNaN(val) && val >= 1 && val <= 10) {
+          document.getElementById(nextId).focus();
+        }
+      }, 100);
+    }
+  </script>
+</body>
+</html>
+"""
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    global hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage
+    prediction = None
+    last_prediction = predictions[-1] if predictions else None
+
+    if request.method == 'POST':
+        try:
+            first = int(request.form['first']) or 10
+            second = int(request.form['second']) or 10
+            third = int(request.form['third']) or 10
+            current = [first, second, third]
+            history.append(current)
+
+            if len(history) >= 3:
+                # 熱號：上一期隨機取2碼
+                last_set = history[-2]
+                hot = random.sample(last_set, k=2) if len(last_set) >= 2 else last_set
+
+                # 動態熱號：最近3期中，排除熱號後統計
+                recent = history[-3:]
+                flat = [n for g in recent for n in g if n not in hot]
+                freq = Counter(flat)
+                max_freq = max(freq.values()) if freq else 0
+                dynamic_pool = [n for n, c in freq.items() if c == max_freq]
+                dynamic_hot = [random.choice(dynamic_pool)] if dynamic_pool else []
+
+                # 補碼：從1–10排除 熱號 + 動熱池
+                used = set(hot + dynamic_pool)
+                pool = [n for n in range(1, 11) if n not in used]
+                random.shuffle(pool)
+                extra = pool[:1]
+
+                result = sorted(hot + dynamic_hot + extra)
+                prediction = result
+                predictions.append(result)
+
+                # 命中與記錄
+                champion = current[0]
+                total_tests += 1
+
+                if last_prediction and champion in last_prediction:
+                    all_hits += 1
+                    current_stage = 1
+                else:
+                    current_stage += 1
+
+                if champion in hot:
+                    hot_hits += 1
+                    label = "熱號命中"
+                elif champion in dynamic_hot:
+                    dynamic_hits += 1
+                    label = "動熱命中"
+                elif champion in extra:
+                    extra_hits += 1
+                    label = "補碼命中"
+                else:
+                    label = "未命中"
+
+                source_logs.append(f"冠軍號碼 {champion} → {label}")
+                debug_logs.append(
+                    f"熱號 = {hot} ｜動熱池 = {dynamic_pool} ｜實際動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
+                )
+
+        except:
+            prediction = ["格式錯誤"]
+
+    return render_template_string(TEMPLATE,
+        prediction=prediction,
+        last_prediction=last_prediction,
+        stage=current_stage,
+        history_data=history[-10:],
+        result_log=source_logs[-10:],
+        debug_log=debug_logs[-10:],
+        hot_hits=hot_hits,
+        dynamic_hits=dynamic_hits,
+        extra_hits=extra_hits,
+        all_hits=all_hits,
+        total_tests=total_tests)
+
+if __name__ == '__main__':
+    app.run(debug=True)
