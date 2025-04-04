@@ -19,11 +19,11 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（hotplus v2-調整版）</title>
+  <title>5碼預測器（hotplus v2-補碼3強化版）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（hotplus v2-調整版）</h2>
+  <h2>5碼預測器（hotplus v2-補碼3強化版）</h2>
   <form method='POST'>
     <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
     <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
@@ -128,9 +128,9 @@ def index():
                 used = set(hot + dynamic_hot)
                 pool = [n for n in range(1, 11) if n not in used]
                 random.shuffle(pool)
-                extra = pool[:2]
+                extra = pool[:3]
 
-                result = sorted(hot + dynamic_hot + extra)
+                result = sorted(hot + dynamic_hot + extra)[:5]
                 prediction = result
                 predictions.append(result)
 
