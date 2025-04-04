@@ -19,15 +19,15 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（hotplus v2-強化優化版）</title>
+  <title>5碼預測器（hotplus v3-強化版）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（hotplus v2-強化優化版）</h2>
+  <h2>5碼預測器（hotplus v3-強化版）</h2>
   <form method='POST'>
-    <input name='first' id='first' inputmode='numeric' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
-    <input name='second' id='second' inputmode='numeric' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
-    <input name='third' id='third' inputmode='numeric' placeholder='季軍' required style='width: 80%; padding: 8px;'><br><br>
+    <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
+    <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
+    <input name='third' id='third' placeholder='季軍' required style='width: 80%; padding: 8px;'><br><br>
     <button type='submit' style='padding: 10px 20px;'>提交</button>
   </form>
 
@@ -112,24 +112,31 @@ def index():
             current = [first, second, third]
             history.append(current)
 
-            if len(history) >= 3:
-                # 熱號邏輯：取上一期隨機兩碼
-                last_set = history[-2]
-                hot = random.sample(last_set, k=2) if len(last_set) >= 2 else last_set
-
-                # 動態熱號邏輯：近三期中排除熱號，出現最多的選1
-                recent = history[-3:]
-                flat = [n for g in recent for n in g if n not in hot]
+            if len(history) >= 5:
+                recent = history[-5:]
+                flat = [n for group in recent for n in group]
                 freq = Counter(flat)
-                dynamic_pool = []
-                if freq:
-                    max_freq = max(freq.values())
-                    dynamic_pool = [n for n, c in freq.items() if c == max_freq]
-                dynamic_hot = [random.choice(dynamic_pool)] if dynamic_pool else []
+                recency = {}
+                for i in range(len(history)-1, len(history)-6, -1):
+                    for n in history[i]:
+                        if n not in recency:
+                            recency[n] = len(history) - i
+                scored = {n: freq[n]*2 + (6 - recency.get(n, 6)) for n in freq}
+                hot_pool = sorted(scored, key=lambda x: -scored[x])[:3]
+                hot = random.sample(hot_pool, k=2)
 
-                # 補碼：排除熱號與動熱後隨機選 2
+                dyn_flat = [n for group in recent for n in group if n not in hot]
+                dyn_freq = Counter(dyn_flat)
+                dyn_score = {n: dyn_freq[n] + (6 - recency.get(n, 6)) for n in dyn_freq}
+                dyn_pool = sorted(dyn_score, key=lambda x: -dyn_score[x])[:3]
+                dynamic_hot = [random.choice(dyn_pool)] if dyn_pool else []
+
                 used = set(hot + dynamic_hot)
-                pool = [n for n in range(1, 11) if n not in used]
+                recent6 = history[-6:]
+                appeared = {n for g in recent6 for n in g}
+                pool = [n for n in range(1, 11) if n not in used and n in appeared]
+                if len(pool) < 2:
+                    pool += [n for n in range(1, 11) if n not in used and n not in pool]
                 random.shuffle(pool)
                 extra = pool[:2]
 
@@ -137,9 +144,9 @@ def index():
                 prediction = result
                 predictions.append(result)
 
-                # 命中判定
                 champion = current[0]
                 total_tests += 1
+
                 if last_prediction and champion in last_prediction:
                     all_hits += 1
                     current_stage = 1
@@ -159,13 +166,14 @@ def index():
                     label = "未命中"
 
                 source_logs.append(f"冠軍號碼 {champion} → {label}")
-                debug_logs.append(f"熱號 = {hot} ｜動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）")
+                debug_logs.append(
+                    f"熱號 = {hot} ｜動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
+                )
 
         except:
             prediction = ["格式錯誤"]
 
-    return render_template_string(
-        TEMPLATE,
+    return render_template_string(TEMPLATE,
         prediction=prediction,
         last_prediction=last_prediction,
         stage=current_stage,
@@ -176,8 +184,7 @@ def index():
         dynamic_hits=dynamic_hits,
         extra_hits=extra_hits,
         all_hits=all_hits,
-        total_tests=total_tests
-    )
+        total_tests=total_tests)
 
 if __name__ == '__main__':
     app.run(debug=True)
