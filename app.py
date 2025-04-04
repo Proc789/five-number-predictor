@@ -19,11 +19,11 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（hotplus v2-補碼3強化版）</title>
+  <title>5碼預測器（hotplus v2-新版邏輯）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（hotplus v2-補碼3強化版）</h2>
+  <h2>5碼預測器（hotplus v2-新版邏輯）</h2>
   <form method='POST'>
     <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
     <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
@@ -113,24 +113,25 @@ def index():
             history.append(current)
 
             if len(history) >= 3:
-                recent = history[-3:]
-                flat = [n for group in recent for n in group]
-                freq = Counter(flat)
-                top_hot = sorted(freq.items(), key=lambda x: (-x[1], -flat[::-1].index(x[0])))[:3]
-                hot_pool = [n for n, _ in top_hot]
-                hot = random.sample(hot_pool, k=min(2, len(hot_pool)))
+                last_set = history[-2]
+                hot = random.sample(last_set, k=2) if len(last_set) >= 2 else last_set
 
-                flat_dynamic = [n for group in recent for n in group if n not in hot]
-                freq_dyn = Counter(flat_dynamic)
-                dynamic_pool = sorted(freq_dyn, key=lambda x: (-freq_dyn[x], -flat_dynamic[::-1].index(x)))[:3]
-                dynamic_hot = random.sample(dynamic_pool, k=1) if dynamic_pool else []
+                recent = history[-3:]
+                flat = [n for g in recent for n in g if n not in hot]
+                freq = Counter(flat)
+                if freq:
+                    max_freq = max(freq.values())
+                    dynamic_pool = [n for n, c in freq.items() if c == max_freq]
+                    dynamic_hot = [random.choice(dynamic_pool)]
+                else:
+                    dynamic_hot = []
 
                 used = set(hot + dynamic_hot)
                 pool = [n for n in range(1, 11) if n not in used]
                 random.shuffle(pool)
-                extra = pool[:3]
+                extra = pool[:2]
 
-                result = sorted(hot + dynamic_hot + extra)[:5]
+                result = sorted(hot + dynamic_hot + extra)
                 prediction = result
                 predictions.append(result)
 
