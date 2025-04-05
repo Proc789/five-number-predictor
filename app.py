@@ -19,15 +19,15 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（hotplus v2-強化補碼）</title>
+  <title>5碼預測器（hotplus v2-新版邏輯）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（hotplus v2-強化補碼）</h2>
+  <h2>5碼預測器（hotplus v2-新版邏輯）</h2>
   <form method='POST'>
-    <input inputmode="numeric" pattern="[0-9]*" name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
-    <input inputmode="numeric" pattern="[0-9]*" name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
-    <input inputmode="numeric" pattern="[0-9]*" name='third' id='third' placeholder='季軍' required style='width: 80%; padding: 8px;'><br><br>
+    <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')" inputmode="numeric"><br><br>
+    <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')" inputmode="numeric"><br><br>
+    <input name='third' id='third' placeholder='季軍' required style='width: 80%; padding: 8px;' inputmode="numeric"><br><br>
     <button type='submit' style='padding: 10px 20px;'>提交</button>
   </form>
 
@@ -113,31 +113,29 @@ def index():
             history.append(current)
 
             if len(history) >= 3:
-                # 熱號：上一期中隨機取 2
                 last_set = history[-2]
                 hot = random.sample(last_set, k=2) if len(last_set) >= 2 else last_set
 
-                # 動態熱號：近三期排除熱號後統計次數，取最多的 2 碼
                 recent = history[-3:]
                 flat = [n for g in recent for n in g if n not in hot]
                 freq = Counter(flat)
-                top_freq = max(freq.values()) if freq else 0
-                dynamic_pool = [n for n, c in freq.items() if c == top_freq]
-                dynamic_hot = random.sample(dynamic_pool, k=min(2, len(dynamic_pool))) if dynamic_pool else []
+                dynamic_pool = [n for n, c in freq.items() if c == max(freq.values())] if freq else []
+                dynamic_hot = [random.choice(dynamic_pool)] if dynamic_pool else []
 
-                # 冷號：近三期完全未出現
-                recent_numbers = {n for g in recent for n in g}
-                cold = [n for n in range(1, 11) if n not in recent_numbers]
-
-                # 補碼：排除 熱號 + 動熱 + 動熱池 + 冷號
-                used = set(hot + dynamic_hot + dynamic_pool + cold)
-                pool = [n for n in range(1, 11) if n not in used]
+                exclude = set(hot + dynamic_hot + dynamic_pool)
+                cold = {n for n in range(1, 11)} - {n for g in history[-3:] for n in g}
+                pool = [n for n in range(1, 11) if n not in exclude and n not in cold]
                 random.shuffle(pool)
-                extra = pool[:1] if pool else []
+                extra = pool[:1]
 
-                result = sorted(hot + dynamic_hot + extra)
-                prediction = result
-                predictions.append(result)
+                result = hot + dynamic_hot + extra
+                if len(result) < 5:
+                    filler_pool = [n for n in range(1, 11) if n not in result]
+                    random.shuffle(filler_pool)
+                    result += filler_pool[:(5 - len(result))]
+
+                prediction = sorted(result)
+                predictions.append(prediction)
 
                 champion = current[0]
                 total_tests += 1
@@ -162,7 +160,7 @@ def index():
 
                 source_logs.append(f"冠軍號碼 {champion} → {label}")
                 debug_logs.append(
-                    f"熱號 = {hot} ｜動熱池 = {dynamic_pool} ｜動熱 = {dynamic_hot} ｜冷號 = {cold} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
+                    f"熱號 = {hot} ｜動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
                 )
 
         except:
