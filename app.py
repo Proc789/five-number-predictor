@@ -5,15 +5,13 @@ from collections import Counter
 app = Flask(__name__)
 history = []
 predictions = []
-source_logs = []
-debug_logs = []
-training_enabled = False
+training = False
+stage = 1
 hot_hits = 0
 dynamic_hits = 0
 extra_hits = 0
 all_hits = 0
 total_tests = 0
-current_stage = 1
 
 TEMPLATE = """
 <!DOCTYPE html>
@@ -23,16 +21,18 @@ TEMPLATE = """
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器<br><small style='font-size: 14px;'>版本：熱2＋動2＋補1（公版UI）</small></h2>
+  <h2>5碼預測器<br><div style="font-size: 14px;">版本：熱號2+動熱2+補碼1（公版UI）</div></h2>
+
   <form method='POST'>
     <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')" inputmode="numeric"><br><br>
     <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')" inputmode="numeric"><br><br>
     <input name='third' id='third' placeholder='季軍' required style='width: 80%; padding: 8px;' inputmode="numeric"><br><br>
     <button type='submit' style='padding: 10px 20px;'>提交</button>
   </form>
+
   <br>
-  <a href='/toggle'><button>{{ '關閉統計模式' if training else '啟動統計模式' }}</button></a>
-  <a href='/reset'><button style='margin-left: 10px;'>清空所有資料</button></a>
+  <a href="/toggle"><button>{{ '關閉統計模式' if training else '啟動統計模式' }}</button></a>
+  <a href="/reset"><button>清除資料</button></a>
 
   {% if prediction %}
     <div style='margin-top: 20px;'>
@@ -49,9 +49,9 @@ TEMPLATE = """
     <div style='margin-top: 20px; text-align: left;'>
       <strong>命中統計：</strong><br>
       冠軍命中次數（任一區）：{{ all_hits }} / {{ total_tests }}<br>
-      熱號命中次數：{{ hot_hits }} / {{ total_tests }}<br>
-      動熱命中次數：{{ dynamic_hits }} / {{ total_tests }}<br>
-      補碼命中次數：{{ extra_hits }} / {{ total_tests }}<br>
+      熱號命中次數：{{ hot_hits }}<br>
+      動熱命中次數：{{ dynamic_hits }}<br>
+      補碼命中次數：{{ extra_hits }}<br>
     </div>
   {% endif %}
 
@@ -81,7 +81,7 @@ TEMPLATE = """
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    global hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage, training_enabled
+    global stage, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, training
     prediction = None
     last_prediction = predictions[-1] if predictions else None
 
@@ -93,94 +93,76 @@ def index():
             current = [first, second, third]
             history.append(current)
 
-            # 確保在輸入滿5筆或啟動訓練模式後才產生預測
-            if len(history) >= 5 or training_enabled:
-                prediction = make_prediction()
-                predictions.append(prediction)
-
-                champion = current[0]
-                if last_prediction:
-                    if champion in last_prediction:
+            if len(history) >= 5:
+                if len(predictions) >= 1:
+                    champion = current[0]
+                    if champion in predictions[-1]:
                         all_hits += 1
-                        current_stage = 1
+                        if training: stage = 1
                     else:
-                        current_stage += 1
+                        if training: stage += 1
 
-                    if champion in hot:
-                        hot_hits += 1
-                        label = "熱號命中"
-                    elif champion in dynamic:
-                        dynamic_hits += 1
-                        label = "動熱命中"
-                    elif champion in extra:
-                        extra_hits += 1
-                        label = "補碼命中"
-                if training_enabled:
-                    total_tests += 1
+                    if training:
+                        total_tests += 1
+                        if champion in hot: hot_hits += 1
+                        elif champion in dynamic: dynamic_hits += 1
+                        elif champion in extra: extra_hits += 1
+
+                hot, dynamic, extra, prediction = generate_prediction()
+                predictions.append(prediction)
         except:
-            prediction = ['格式錯誤']
+            prediction = ["格式錯誤"]
 
     return render_template_string(TEMPLATE,
         prediction=prediction,
         last_prediction=last_prediction,
-        stage=current_stage,
+        stage=stage if len(history) >= 5 else "-",
         history_data=history[-10:],
-        training=training_enabled,
-        all_hits=all_hits,
-        total_tests=total_tests,
+        training=training,
         hot_hits=hot_hits,
         dynamic_hits=dynamic_hits,
-        extra_hits=extra_hits
-    )
+        extra_hits=extra_hits,
+        all_hits=all_hits,
+        total_tests=total_tests)
 
 @app.route('/toggle')
 def toggle():
-    global training_enabled, all_hits, total_tests, hot_hits, dynamic_hits, extra_hits, current_stage
-    training_enabled = not training_enabled
-    if training_enabled:
-        all_hits = total_tests = hot_hits = dynamic_hits = extra_hits = 0
-        current_stage = 1
+    global training, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, stage
+    training = not training
+    if training:
+        hot_hits = dynamic_hits = extra_hits = all_hits = total_tests = 0
+        stage = 1
     return redirect('/')
 
 @app.route('/reset')
 def reset():
-    global history, predictions, source_logs, debug_logs, all_hits, total_tests, hot_hits, dynamic_hits, extra_hits, current_stage
-    history.clear()
-    predictions.clear()
-    source_logs.clear()
-    debug_logs.clear()
-    all_hits = total_tests = hot_hits = dynamic_hits = extra_hits = 0
-    current_stage = 1
+    global history, predictions, training, stage
+    history = []
+    predictions = []
+    training = False
+    stage = 1
     return redirect('/')
 
-def make_prediction():
-    global hot, dynamic, extra
+def generate_prediction():
     recent = history[-3:]
-    flat = [n for g in recent for n in g]
+    flat = [n for group in recent for n in group]
     freq = Counter(flat)
+
+    # 熱號：出現次數最多前 2 名（固定選取）
     hot = [n for n, _ in freq.most_common(3)][:2]
 
-    dynamic_pool = [n for n, c in freq.items() if n not in hot]
-    if dynamic_pool:
-        count_map = Counter({n: flat.count(n) for n in dynamic_pool})
-        top_dynamic = sorted(count_map, key=lambda x: (-count_map[x], -flat[::-1].index(x)))[:3]
-        dynamic = random.sample(top_dynamic, min(2, len(top_dynamic)))
-    else:
-        dynamic = []
+    # 動熱：排除熱號後出現次數最多前 2 名（固定）
+    dyn_flat = [n for n in flat if n not in hot]
+    freq_dyn = Counter(dyn_flat)
+    dynamic = [n for n, _ in freq_dyn.most_common(2)]
 
-    exclude = set(hot + dynamic + dynamic_pool)
-    cold = {n for n in range(1, 11)} - set(flat)
-    pool = [n for n in range(1, 11) if n not in exclude and n not in cold]
+    # 補碼：1~10 扣掉已選，隨機取 1
+    used = set(hot + dynamic)
+    pool = [n for n in range(1, 11) if n not in used]
     random.shuffle(pool)
     extra = pool[:1]
 
-    result = hot + dynamic + extra
-    if len(result) < 5:
-        filler = [n for n in range(1, 11) if n not in result]
-        random.shuffle(filler)
-        result += filler[:(5 - len(result))]
-
-    return sorted(result)
+    return hot, dynamic, extra, sorted(hot + dynamic + extra)
 
 if __name__ == '__main__':
     app.run(debug=True)
