@@ -18,11 +18,11 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（熱2+動2+補1）</title>
+  <title>5碼預測器（穩定版）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（熱2+動2+補1）</h2>
+  <h2>5碼預測器</h2>
   <form method='POST'>
     <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')" inputmode="numeric"><br><br>
     <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')" inputmode="numeric"><br><br>
@@ -34,7 +34,8 @@ TEMPLATE = """
 
   {% if prediction %}
     <div style='margin-top: 20px;'>
-      <strong>本期預測號碼：</strong> {{ prediction }}（目前第 {{ stage }} 關）
+      <strong>本期預測號碼：</strong> {{ prediction }}（目前第 {{ stage }} 關）<br>
+      <strong>版本：</strong> 熱2+動2+補1
     </div>
   {% endif %}
   {% if last_prediction %}
@@ -80,10 +81,8 @@ TEMPLATE = """
 @app.route('/', methods=['GET', 'POST'])
 def index():
     global training_enabled, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage
-
     prediction = None
     last_prediction = predictions[-1] if predictions else None
-    stage = current_stage
 
     if request.method == 'POST':
         try:
@@ -93,32 +92,30 @@ def index():
             current = [first, second, third]
             history.append(current)
 
-            # 更新關數（不論訓練模式與否）
-            if last_prediction and len(predictions) > 0:
-                if current[0] in last_prediction:
-                    current_stage = 1
-                else:
-                    current_stage += 1
-                stage = current_stage
-
-            # 統計模式下進行命中統計
-            if training_enabled and last_prediction:
-                total_tests += 1
-                if current[0] in last_prediction:
-                    all_hits += 1
-                if current[0] in hot:
-                    hot_hits += 1
-                elif current[0] in dynamic:
-                    dynamic_hits += 1
-                elif current[0] in extra:
-                    extra_hits += 1
-
-            # 開始預測（需輸入至少 5 組 或 開啟訓練模式）
             if len(history) >= 5 or training_enabled:
                 prediction = make_prediction()
                 predictions.append(prediction)
+
+                if training_enabled:
+                    champion = current[0]
+                    total_tests += 1
+
+                    if last_prediction and champion in last_prediction:
+                        all_hits += 1
+                        current_stage = 1
+                    else:
+                        current_stage += 1
+
+                    if champion in prediction[:2]:
+                        hot_hits += 1
+                    elif champion in prediction[2:4]:
+                        dynamic_hits += 1
+                    elif champion in prediction[4:]:
+                        extra_hits += 1
         except:
             prediction = ['格式錯誤']
+
+    stage = current_stage if training_enabled else get_stage()
 
     return render_template_string(TEMPLATE,
         prediction=prediction,
@@ -136,40 +133,40 @@ def index():
 def toggle():
     global training_enabled, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage
     training_enabled = not training_enabled
-    hot_hits = dynamic_hits = extra_hits = all_hits = total_tests = 0
-    current_stage = 1
+    if training_enabled:
+        hot_hits = dynamic_hits = extra_hits = all_hits = total_tests = 0
+        current_stage = 1
     return redirect('/')
 
+def get_stage():
+    if len(predictions) < 2 or len(history) < 2:
+        return 1
+    champion = history[-1][0]
+    if champion in predictions[-2]:
+        return 1
+    return 2
+
 def make_prediction():
-    global hot, dynamic, extra
     recent = history[-3:]
     flat = [n for g in recent for n in g]
     freq = Counter(flat)
 
-    # 熱號：取出現次數最多的前3碼，選2
-    hot_pool = [n for n, _ in freq.most_common(3)]
-    hot = random.sample(hot_pool, k=min(2, len(hot_pool)))
+    hot = [n for n, _ in freq.most_common(3)][:2]
+    dynamic_pool = [n for n in freq if n not in hot]
+    dynamic_sorted = sorted(dynamic_pool, key=lambda x: (-freq[x], -flat[::-1].index(x)))
+    dynamic = dynamic_sorted[:2]
 
-    # 動態熱號：排除熱號後統計頻率，選最多的前3中隨機選2
-    flat_dyn = [n for n in flat if n not in hot]
-    dyn_freq = Counter(flat_dyn)
-    dyn_pool = [n for n, _ in dyn_freq.most_common(3)]
-    dynamic = random.sample(dyn_pool, k=min(2, len(dyn_pool)))
-
-    # 補碼：排除熱號、動熱與整個動熱池，再排除冷號（3期未出現）
-    exclude = set(hot + dynamic + dyn_pool)
-    recent_nums = set(flat)
-    cold = {n for n in range(1, 11)} - recent_nums
+    cold = {n for n in range(1, 11)} - set(flat)
+    exclude = set(hot + dynamic + dynamic_sorted)
     pool = [n for n in range(1, 11) if n not in exclude and n not in cold]
     random.shuffle(pool)
     extra = pool[:1]
 
     result = hot + dynamic + extra
-    # 強制補足到5碼
     if len(result) < 5:
-        filler_pool = [n for n in range(1, 11) if n not in result]
-        random.shuffle(filler_pool)
-        result += filler_pool[:(5 - len(result))]
+        filler = [n for n in range(1, 11) if n not in result]
+        random.shuffle(filler)
+        result += filler[:(5 - len(result))]
 
     return sorted(result)
 
