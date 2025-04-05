@@ -5,11 +5,13 @@ from collections import Counter
 app = Flask(__name__)
 history = []
 predictions = []
+hot_hits = 0
+dynamic_hits = 0
+extra_hits = 0
+all_hits = 0
+total_tests = 0
+current_stage = 1
 training_enabled = False
-stage = 1
-training_stage = 1
-hits = 0
-total = 0
 
 TEMPLATE = """
 <!DOCTYPE html>
@@ -20,7 +22,7 @@ TEMPLATE = """
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
   <h2>5碼預測器</h2>
-  <div style="margin-bottom: 8px;">版本：hotplus-v2-新版邏輯</div>
+  <div style='font-weight: bold; margin-bottom: 10px;'>版本：hotplus-v2-新版邏輯</div>
   <form method='POST'>
     <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')" inputmode="numeric"><br><br>
     <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')" inputmode="numeric"><br><br>
@@ -29,33 +31,39 @@ TEMPLATE = """
   </form>
   <br>
   <a href='/toggle'><button>{{ '關閉統計模式' if training else '啟動統計模式' }}</button></a>
+  <a href='/reset'><button style="background-color: #f44; color: white; padding: 8px 16px; border: none;">清空所有資料</button></a>
 
   {% if prediction %}
     <div style='margin-top: 20px;'>
       <strong>本期預測號碼：</strong> {{ prediction }}（目前第 {{ stage }} 關）
     </div>
-    {% if last_prediction %}
+  {% endif %}
+  {% if last_prediction %}
     <div style='margin-top: 10px;'>
       <strong>上期預測號碼：</strong> {{ last_prediction }}
     </div>
-    {% endif %}
   {% endif %}
 
   {% if training %}
     <div style='margin-top: 20px; text-align: left;'>
       <strong>命中統計：</strong><br>
-      冠軍命中次數（任一區）：{{ hits }} / {{ total }}
+      冠軍命中次數（任一區）：{{ all_hits }} / {{ total_tests }}<br>
+      熱號命中次數：{{ hot_hits }} / {{ total_tests }}<br>
+      動熱命中次數：{{ dynamic_hits }} / {{ total_tests }}<br>
+      補碼命中次數：{{ extra_hits }} / {{ total_tests }}<br>
     </div>
   {% endif %}
 
-  <div style='margin-top: 20px; text-align: left;'>
-    <strong>最近輸入紀錄：</strong>
-    <ul>
-      {% for row in history_data %}
-        <li>第 {{ loop.index }} 期：{{ row }}</li>
-      {% endfor %}
-    </ul>
-  </div>
+  {% if history_data %}
+    <div style='margin-top: 20px; text-align: left;'>
+      <strong>最近輸入紀錄：</strong>
+      <ul>
+        {% for row in history_data %}
+          <li>第 {{ loop.index }} 期：{{ row }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
 
   <script>
     function moveToNext(current, nextId) {
@@ -74,9 +82,10 @@ TEMPLATE = """
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    global training_enabled, stage, training_stage, hits, total
+    global history, predictions, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage
     prediction = None
     last_prediction = predictions[-1] if predictions else None
+    stage = current_stage
 
     if request.method == 'POST':
         try:
@@ -90,45 +99,50 @@ def index():
                 prediction = make_prediction()
                 predictions.append(prediction)
 
-                # 判定命中與關卡計算
-                if len(predictions) >= 2:
-                    champion = current[0]
-                    prev = predictions[-2]
-                    if champion in prev:
-                        if training_enabled:
-                            training_stage = 1
-                            hits += 1
-                        stage = 1
+                champion = current[0]
+                if training_enabled:
+                    total_tests += 1
+                    if champion in prediction:
+                        all_hits += 1
+                        current_stage = 1
                     else:
-                        if training_enabled:
-                            training_stage += 1
-                        stage += 1
-                    if training_enabled:
-                        total += 1
+                        current_stage += 1
         except:
             prediction = ['格式錯誤']
 
     return render_template_string(TEMPLATE,
         prediction=prediction,
         last_prediction=last_prediction,
-        stage=training_stage if training_enabled else stage,
+        stage=current_stage,
         history_data=history[-10:],
         training=training_enabled,
-        hits=hits,
-        total=total)
+        hot_hits=hot_hits,
+        dynamic_hits=dynamic_hits,
+        extra_hits=extra_hits,
+        all_hits=all_hits,
+        total_tests=total_tests)
 
 @app.route('/toggle')
 def toggle():
-    global training_enabled, training_stage, hits, total
+    global training_enabled, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage
     training_enabled = not training_enabled
-    training_stage = 1
-    hits = 0
-    total = 0
+    if training_enabled:
+        hot_hits = dynamic_hits = extra_hits = all_hits = total_tests = 0
+        current_stage = 1
+    return redirect('/')
+
+@app.route('/reset')
+def reset():
+    global history, predictions, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage
+    history = []
+    predictions = []
+    hot_hits = dynamic_hits = extra_hits = all_hits = total_tests = 0
+    current_stage = 1
     return redirect('/')
 
 def make_prediction():
     recent = history[-3:]
-    flat = [n for group in recent for n in group]
+    flat = [n for g in recent for n in g]
     freq = Counter(flat)
 
     hot = [n for n, _ in freq.most_common(3)][:2]
@@ -143,11 +157,6 @@ def make_prediction():
     extra = pool[:1]
 
     result = hot + dynamic + extra
-    if len(result) < 5:
-        filler_pool = [n for n in range(1, 11) if n not in result]
-        random.shuffle(filler_pool)
-        result += filler_pool[:(5 - len(result))]
-
     return sorted(result)
 
 if __name__ == '__main__':
