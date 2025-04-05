@@ -5,11 +5,15 @@ from collections import Counter
 app = Flask(__name__)
 history = []
 predictions = []
+source_logs = []
+debug_logs = []
 training_enabled = False
-stage = 1
-training_stage = 1
-hits = 0
-total = 0
+hot_hits = 0
+dynamic_hits = 0
+extra_hits = 0
+all_hits = 0
+total_tests = 0
+current_stage = 1
 
 TEMPLATE = """
 <!DOCTYPE html>
@@ -19,8 +23,7 @@ TEMPLATE = """
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器</h2>
-  <div style="margin-bottom: 8px;">版本：hotplus-v2-新版邏輯</div>
+  <h2>5碼預測器<br><small style='font-size: 14px;'>版本：熱2＋動2＋補1（公版UI）</small></h2>
   <form method='POST'>
     <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')" inputmode="numeric"><br><br>
     <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')" inputmode="numeric"><br><br>
@@ -29,22 +32,26 @@ TEMPLATE = """
   </form>
   <br>
   <a href='/toggle'><button>{{ '關閉統計模式' if training else '啟動統計模式' }}</button></a>
+  <a href='/reset'><button style='margin-left: 10px;'>清空所有資料</button></a>
 
   {% if prediction %}
     <div style='margin-top: 20px;'>
       <strong>本期預測號碼：</strong> {{ prediction }}（目前第 {{ stage }} 關）
     </div>
-    {% if last_prediction %}
+  {% endif %}
+  {% if last_prediction %}
     <div style='margin-top: 10px;'>
       <strong>上期預測號碼：</strong> {{ last_prediction }}
     </div>
-    {% endif %}
   {% endif %}
 
   {% if training %}
     <div style='margin-top: 20px; text-align: left;'>
       <strong>命中統計：</strong><br>
-      冠軍命中次數（任一區）：{{ hits }} / {{ total }}
+      冠軍命中次數（任一區）：{{ all_hits }} / {{ total_tests }}<br>
+      熱號命中次數：{{ hot_hits }} / {{ total_tests }}<br>
+      動熱命中次數：{{ dynamic_hits }} / {{ total_tests }}<br>
+      補碼命中次數：{{ extra_hits }} / {{ total_tests }}<br>
     </div>
   {% endif %}
 
@@ -74,7 +81,7 @@ TEMPLATE = """
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    global training_enabled, stage, training_stage, hits, total
+    global hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage, training_enabled
     prediction = None
     last_prediction = predictions[-1] if predictions else None
 
@@ -86,67 +93,92 @@ def index():
             current = [first, second, third]
             history.append(current)
 
+            # 確保在輸入滿5筆或啟動訓練模式後才產生預測
             if len(history) >= 5 or training_enabled:
                 prediction = make_prediction()
                 predictions.append(prediction)
 
-                # 判定命中與關卡計算
-                if len(predictions) >= 2:
-                    champion = current[0]
-                    prev = predictions[-2]
-                    if champion in prev:
-                        if training_enabled:
-                            training_stage = 1
-                            hits += 1
-                        stage = 1
+                champion = current[0]
+                if last_prediction:
+                    if champion in last_prediction:
+                        all_hits += 1
+                        current_stage = 1
                     else:
-                        if training_enabled:
-                            training_stage += 1
-                        stage += 1
-                    if training_enabled:
-                        total += 1
+                        current_stage += 1
+
+                    if champion in hot:
+                        hot_hits += 1
+                        label = "熱號命中"
+                    elif champion in dynamic:
+                        dynamic_hits += 1
+                        label = "動熱命中"
+                    elif champion in extra:
+                        extra_hits += 1
+                        label = "補碼命中"
+                if training_enabled:
+                    total_tests += 1
         except:
             prediction = ['格式錯誤']
 
     return render_template_string(TEMPLATE,
         prediction=prediction,
         last_prediction=last_prediction,
-        stage=training_stage if training_enabled else stage,
+        stage=current_stage,
         history_data=history[-10:],
         training=training_enabled,
-        hits=hits,
-        total=total)
+        all_hits=all_hits,
+        total_tests=total_tests,
+        hot_hits=hot_hits,
+        dynamic_hits=dynamic_hits,
+        extra_hits=extra_hits
+    )
 
 @app.route('/toggle')
 def toggle():
-    global training_enabled, training_stage, hits, total
+    global training_enabled, all_hits, total_tests, hot_hits, dynamic_hits, extra_hits, current_stage
     training_enabled = not training_enabled
-    training_stage = 1
-    hits = 0
-    total = 0
+    if training_enabled:
+        all_hits = total_tests = hot_hits = dynamic_hits = extra_hits = 0
+        current_stage = 1
+    return redirect('/')
+
+@app.route('/reset')
+def reset():
+    global history, predictions, source_logs, debug_logs, all_hits, total_tests, hot_hits, dynamic_hits, extra_hits, current_stage
+    history.clear()
+    predictions.clear()
+    source_logs.clear()
+    debug_logs.clear()
+    all_hits = total_tests = hot_hits = dynamic_hits = extra_hits = 0
+    current_stage = 1
     return redirect('/')
 
 def make_prediction():
+    global hot, dynamic, extra
     recent = history[-3:]
-    flat = [n for group in recent for n in group]
+    flat = [n for g in recent for n in g]
     freq = Counter(flat)
-
     hot = [n for n, _ in freq.most_common(3)][:2]
-    dynamic_pool = [n for n in freq if n not in hot]
-    dynamic_sorted = sorted(dynamic_pool, key=lambda x: (-freq[x], -flat[::-1].index(x)))
-    dynamic = dynamic_sorted[:2]
 
+    dynamic_pool = [n for n, c in freq.items() if n not in hot]
+    if dynamic_pool:
+        count_map = Counter({n: flat.count(n) for n in dynamic_pool})
+        top_dynamic = sorted(count_map, key=lambda x: (-count_map[x], -flat[::-1].index(x)))[:3]
+        dynamic = random.sample(top_dynamic, min(2, len(top_dynamic)))
+    else:
+        dynamic = []
+
+    exclude = set(hot + dynamic + dynamic_pool)
     cold = {n for n in range(1, 11)} - set(flat)
-    exclude = set(hot + dynamic + dynamic_sorted)
     pool = [n for n in range(1, 11) if n not in exclude and n not in cold]
     random.shuffle(pool)
     extra = pool[:1]
 
     result = hot + dynamic + extra
     if len(result) < 5:
-        filler_pool = [n for n in range(1, 11) if n not in result]
-        random.shuffle(filler_pool)
-        result += filler_pool[:(5 - len(result))]
+        filler = [n for n in range(1, 11) if n not in result]
+        random.shuffle(filler)
+        result += filler[:(5 - len(result))]
 
     return sorted(result)
 
