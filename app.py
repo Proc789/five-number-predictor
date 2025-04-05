@@ -6,20 +6,19 @@ app = Flask(__name__)
 history = []
 predictions = []
 training_enabled = False
-training_data = {
-    "hot_hits": 0,
-    "dynamic_hits": 0,
-    "extra_hits": 0,
-    "all_hits": 0,
-    "total": 0,
-    "stage": 1
-}
+
+hot_hits = 0
+dynamic_hits = 0
+extra_hits = 0
+all_hits = 0
+total_tests = 0
+current_stage = 1
 
 TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（穩定版）</title>
+  <title>5碼預測器（熱2+動2+補1）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
@@ -45,13 +44,13 @@ TEMPLATE = """
   {% endif %}
 
   {% if training %}
-    <div style='margin-top: 20px; text-align: left;'>
-      <strong>命中統計：</strong><br>
-      熱號命中：{{ hot_hits }} / {{ total }}<br>
-      動熱命中：{{ dynamic_hits }} / {{ total }}<br>
-      補碼命中：{{ extra_hits }} / {{ total }}<br>
-      總命中：{{ all_hits }} / {{ total }}<br>
-    </div>
+  <div style='margin-top: 20px; text-align: left;'>
+    <strong>命中統計：</strong><br>
+    冠軍命中次數（任一區）：{{ all_hits }} / {{ total_tests }}<br>
+    熱號命中次數：{{ hot_hits }} / {{ total_tests }}<br>
+    動熱命中次數：{{ dynamic_hits }} / {{ total_tests }}<br>
+    補碼命中次數：{{ extra_hits }} / {{ total_tests }}<br>
+  </div>
   {% endif %}
 
   <div style='margin-top: 20px; text-align: left;'>
@@ -80,10 +79,11 @@ TEMPLATE = """
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    global training_enabled
+    global training_enabled, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage
+
     prediction = None
     last_prediction = predictions[-1] if predictions else None
-    stage = training_data["stage"]
+    stage = current_stage
 
     if request.method == 'POST':
         try:
@@ -93,28 +93,30 @@ def index():
             current = [first, second, third]
             history.append(current)
 
+            # 更新關數（不論訓練模式與否）
+            if last_prediction and len(predictions) > 0:
+                if current[0] in last_prediction:
+                    current_stage = 1
+                else:
+                    current_stage += 1
+                stage = current_stage
+
+            # 統計模式下進行命中統計
+            if training_enabled and last_prediction:
+                total_tests += 1
+                if current[0] in last_prediction:
+                    all_hits += 1
+                if current[0] in hot:
+                    hot_hits += 1
+                elif current[0] in dynamic:
+                    dynamic_hits += 1
+                elif current[0] in extra:
+                    extra_hits += 1
+
+            # 開始預測（需輸入至少 5 組 或 開啟訓練模式）
             if len(history) >= 5 or training_enabled:
                 prediction = make_prediction()
                 predictions.append(prediction)
-
-                if training_enabled:
-                    champion = current[0]
-                    training_data["total"] += 1
-
-                    if champion in prediction:
-                        training_data["all_hits"] += 1
-                        training_data["stage"] = 1
-                    else:
-                        training_data["stage"] += 1
-
-                    hot, dynamic, extra = categorize_prediction()
-                    if champion in hot:
-                        training_data["hot_hits"] += 1
-                    elif champion in dynamic:
-                        training_data["dynamic_hits"] += 1
-                    elif champion in extra:
-                        training_data["extra_hits"] += 1
-
         except:
             prediction = ['格式錯誤']
 
@@ -124,40 +126,52 @@ def index():
         stage=stage,
         history_data=history[-10:],
         training=training_enabled,
-        hot_hits=training_data["hot_hits"],
-        dynamic_hits=training_data["dynamic_hits"],
-        extra_hits=training_data["extra_hits"],
-        all_hits=training_data["all_hits"],
-        total=training_data["total"])
+        hot_hits=hot_hits,
+        dynamic_hits=dynamic_hits,
+        extra_hits=extra_hits,
+        all_hits=all_hits,
+        total_tests=total_tests)
 
 @app.route('/toggle')
 def toggle():
-    global training_enabled
+    global training_enabled, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage
     training_enabled = not training_enabled
-    training_data.update({"hot_hits": 0, "dynamic_hits": 0, "extra_hits": 0, "all_hits": 0, "total": 0, "stage": 1})
+    hot_hits = dynamic_hits = extra_hits = all_hits = total_tests = 0
+    current_stage = 1
     return redirect('/')
 
 def make_prediction():
-    hot, dynamic, extra = categorize_prediction()
-    return sorted(hot + dynamic + extra)
-
-def categorize_prediction():
+    global hot, dynamic, extra
     recent = history[-3:]
-    flat = [n for group in recent for n in group]
+    flat = [n for g in recent for n in g]
     freq = Counter(flat)
 
-    hot = [n for n, _ in freq.most_common(3)][:2]
-    dynamic_pool = [n for n in freq if n not in hot]
-    dynamic_sorted = sorted(dynamic_pool, key=lambda x: (-freq[x], -flat[::-1].index(x)))
-    dynamic = dynamic_sorted[:2]
+    # 熱號：取出現次數最多的前3碼，選2
+    hot_pool = [n for n, _ in freq.most_common(3)]
+    hot = random.sample(hot_pool, k=min(2, len(hot_pool)))
 
-    cold = {n for n in range(1, 11)} - set(flat)
-    exclude = set(hot + dynamic + dynamic_sorted)
+    # 動態熱號：排除熱號後統計頻率，選最多的前3中隨機選2
+    flat_dyn = [n for n in flat if n not in hot]
+    dyn_freq = Counter(flat_dyn)
+    dyn_pool = [n for n, _ in dyn_freq.most_common(3)]
+    dynamic = random.sample(dyn_pool, k=min(2, len(dyn_pool)))
+
+    # 補碼：排除熱號、動熱與整個動熱池，再排除冷號（3期未出現）
+    exclude = set(hot + dynamic + dyn_pool)
+    recent_nums = set(flat)
+    cold = {n for n in range(1, 11)} - recent_nums
     pool = [n for n in range(1, 11) if n not in exclude and n not in cold]
     random.shuffle(pool)
     extra = pool[:1]
 
-    return hot, dynamic, extra
+    result = hot + dynamic + extra
+    # 強制補足到5碼
+    if len(result) < 5:
+        filler_pool = [n for n in range(1, 11) if n not in result]
+        random.shuffle(filler_pool)
+        result += filler_pool[:(5 - len(result))]
+
+    return sorted(result)
 
 if __name__ == '__main__':
     app.run(debug=True)
