@@ -6,7 +6,7 @@ app = Flask(__name__)
 history = []
 predictions = []
 training_enabled = False
-stage = 1
+stage = 1  # 全域關卡紀錄
 
 TEMPLATE = """
 <!DOCTYPE html>
@@ -75,16 +75,16 @@ def index():
             current = [first, second, third]
             history.append(current)
 
+            if len(predictions) > 0:
+                last_champion = current[0]
+                if last_champion in predictions[-1]:
+                    stage = 1
+                else:
+                    stage += 1
+
             if len(history) >= 5 or training_enabled:
                 prediction = make_prediction()
                 predictions.append(prediction)
-
-                champion = current[0]
-                if last_prediction and champion in last_prediction:
-                    if training_enabled:
-                        stage = 1
-                else:
-                    stage += 1
         except:
             prediction = ['格式錯誤']
 
@@ -120,6 +120,10 @@ def make_prediction():
     extra = pool[:1]
 
     result = hot + dynamic + extra
+    if len(result) < 5:
+        filler_pool = [n for n in range(1, 11) if n not in result]
+        random.shuffle(filler_pool)
+        result += filler_pool[:(5 - len(result))]
     return sorted(result)
 
 if __name__ == '__main__':
