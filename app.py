@@ -25,9 +25,9 @@ TEMPLATE = """
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
   <h2>5碼預測器（hotplus v2-新版邏輯）</h2>
   <form method='POST'>
-    <input name='first' id='first' type='tel' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
-    <input name='second' id='second' type='tel' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
-    <input name='third' id='third' type='tel' placeholder='季軍' required style='width: 80%; padding: 8px;'><br><br>
+    <input name='first' id='first' placehoulder='冠軍' required inputmode="numeric" style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
+    <input name='second' id='second' placeholder='亞軍' required inputmode="numeric" style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
+    <input name='third' id='third' placeholder='季軍' required inputmode="numeric" style='width: 80%; padding: 8px;'><br><br>
     <button type='submit' style='padding: 10px 20px;'>提交</button>
   </form>
 
