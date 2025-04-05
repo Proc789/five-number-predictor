@@ -19,15 +19,15 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-  <title>5碼預測器（hotplus v2-新版邏輯）</title>
+  <title>5碼預測器（hotplus v2-優化補碼版）</title>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
 </head>
 <body style='max-width: 400px; margin: auto; padding-top: 40px; font-family: sans-serif; text-align: center;'>
-  <h2>5碼預測器（hotplus v2-新版邏輯）</h2>
+  <h2>5碼預測器（hotplus v2-優化補碼版）</h2>
   <form method='POST'>
-    <input name='first' id='first' placehoulder='冠軍' required inputmode="numeric" style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
-    <input name='second' id='second' placeholder='亞軍' required inputmode="numeric" style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
-    <input name='third' id='third' placeholder='季軍' required inputmode="numeric" style='width: 80%; padding: 8px;'><br><br>
+    <input name='first' id='first' placeholder='冠軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'second')"><br><br>
+    <input name='second' id='second' placeholder='亞軍' required style='width: 80%; padding: 8px;' oninput="moveToNext(this, 'third')"><br><br>
+    <input name='third' id='third' placeholder='季軍' required style='width: 80%; padding: 8px;'><br><br>
     <button type='submit' style='padding: 10px 20px;'>提交</button>
   </form>
 
@@ -119,17 +119,16 @@ def index():
                 recent = history[-3:]
                 flat = [n for g in recent for n in g if n not in hot]
                 freq = Counter(flat)
-                if freq:
-                    max_freq = max(freq.values())
-                    dynamic_pool = [n for n, c in freq.items() if c == max_freq]
-                    dynamic_hot = [random.choice(dynamic_pool)]
-                else:
-                    dynamic_hot = []
+                top_count = max(freq.values()) if freq else 0
+                dynamic_pool = [n for n, c in freq.items() if c == top_count]
+                dynamic_hot = random.sample(dynamic_pool, k=2) if len(dynamic_pool) >= 2 else dynamic_pool
 
-                used = set(hot + dynamic_hot)
+                cold_set = set(range(1, 11)) - {n for g in recent for n in g}
+                full_dynamic_pool = set(freq.keys())
+                used = set(hot + dynamic_hot + list(full_dynamic_pool) + list(cold_set))
                 pool = [n for n in range(1, 11) if n not in used]
                 random.shuffle(pool)
-                extra = pool[:2]
+                extra = pool[:1] if pool else []
 
                 result = sorted(hot + dynamic_hot + extra)
                 prediction = result
@@ -158,7 +157,7 @@ def index():
 
                 source_logs.append(f"冠軍號碼 {champion} → {label}")
                 debug_logs.append(
-                    f"熱號 = {hot} ｜動熱 = {dynamic_hot} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
+                    f"熱號 = {hot} ｜動熱 = {dynamic_hot} ｜補碼池排除 = {list(full_dynamic_pool)}+{list(cold_set)} ｜補碼 = {extra} ｜冠軍 = {champion}（{label}）"
                 )
 
         except:
