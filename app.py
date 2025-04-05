@@ -6,7 +6,14 @@ app = Flask(__name__)
 history = []
 predictions = []
 training_enabled = False
-stage = 1  # 全域關卡紀錄
+training_data = {
+    "hot_hits": 0,
+    "dynamic_hits": 0,
+    "extra_hits": 0,
+    "all_hits": 0,
+    "total": 0,
+    "stage": 1
+}
 
 TEMPLATE = """
 <!DOCTYPE html>
@@ -37,6 +44,16 @@ TEMPLATE = """
     </div>
   {% endif %}
 
+  {% if training %}
+    <div style='margin-top: 20px; text-align: left;'>
+      <strong>命中統計：</strong><br>
+      熱號命中：{{ hot_hits }} / {{ total }}<br>
+      動熱命中：{{ dynamic_hits }} / {{ total }}<br>
+      補碼命中：{{ extra_hits }} / {{ total }}<br>
+      總命中：{{ all_hits }} / {{ total }}<br>
+    </div>
+  {% endif %}
+
   <div style='margin-top: 20px; text-align: left;'>
     <strong>最近輸入紀錄：</strong>
     <ul>
@@ -63,9 +80,10 @@ TEMPLATE = """
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    global training_enabled, stage
+    global training_enabled
     prediction = None
     last_prediction = predictions[-1] if predictions else None
+    stage = training_data["stage"]
 
     if request.method == 'POST':
         try:
@@ -75,16 +93,28 @@ def index():
             current = [first, second, third]
             history.append(current)
 
-            if len(predictions) > 0:
-                last_champion = current[0]
-                if last_champion in predictions[-1]:
-                    stage = 1
-                else:
-                    stage += 1
-
             if len(history) >= 5 or training_enabled:
                 prediction = make_prediction()
                 predictions.append(prediction)
+
+                if training_enabled:
+                    champion = current[0]
+                    training_data["total"] += 1
+
+                    if champion in prediction:
+                        training_data["all_hits"] += 1
+                        training_data["stage"] = 1
+                    else:
+                        training_data["stage"] += 1
+
+                    hot, dynamic, extra = categorize_prediction()
+                    if champion in hot:
+                        training_data["hot_hits"] += 1
+                    elif champion in dynamic:
+                        training_data["dynamic_hits"] += 1
+                    elif champion in extra:
+                        training_data["extra_hits"] += 1
+
         except:
             prediction = ['格式錯誤']
 
@@ -93,19 +123,27 @@ def index():
         last_prediction=last_prediction,
         stage=stage,
         history_data=history[-10:],
-        training=training_enabled)
+        training=training_enabled,
+        hot_hits=training_data["hot_hits"],
+        dynamic_hits=training_data["dynamic_hits"],
+        extra_hits=training_data["extra_hits"],
+        all_hits=training_data["all_hits"],
+        total=training_data["total"])
 
 @app.route('/toggle')
 def toggle():
-    global training_enabled, stage
+    global training_enabled
     training_enabled = not training_enabled
-    if training_enabled:
-        stage = 1
+    training_data.update({"hot_hits": 0, "dynamic_hits": 0, "extra_hits": 0, "all_hits": 0, "total": 0, "stage": 1})
     return redirect('/')
 
 def make_prediction():
+    hot, dynamic, extra = categorize_prediction()
+    return sorted(hot + dynamic + extra)
+
+def categorize_prediction():
     recent = history[-3:]
-    flat = [n for g in recent for n in g]
+    flat = [n for group in recent for n in group]
     freq = Counter(flat)
 
     hot = [n for n, _ in freq.most_common(3)][:2]
@@ -119,12 +157,7 @@ def make_prediction():
     random.shuffle(pool)
     extra = pool[:1]
 
-    result = hot + dynamic + extra
-    if len(result) < 5:
-        filler_pool = [n for n in range(1, 11) if n not in result]
-        random.shuffle(filler_pool)
-        result += filler_pool[:(5 - len(result))]
-    return sorted(result)
+    return hot, dynamic, extra
 
 if __name__ == '__main__':
     app.run(debug=True)
