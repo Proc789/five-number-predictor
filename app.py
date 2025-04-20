@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, request, redirect, session
+from flask import Flask, render_template_string, request, session
 import random
 from collections import Counter
 
@@ -23,7 +23,7 @@ TEMPLATE = """
 <head>
   <meta charset='utf-8'>
   <meta name='viewport' content='width=device-width, initial-scale=1'>
-  <title>多碼數預測器</title>
+  <title>多碼預測器</title>
   <style>
     input { width: 30px; text-align: center; font-size: 20px; }
     td { padding: 4px; }
@@ -38,47 +38,48 @@ TEMPLATE = """
     }
   </script>
 </head>
-<body style='max-width: 480px; margin: auto; padding-top: 30px; font-family: sans-serif; text-align: center;'>
+<body style='max-width: 460px; margin: auto; padding-top: 30px; font-family: sans-serif; text-align: center;'>
   <h2>預測器</h2>
-  <div class="block">
-    <form method='POST'>
-      <table style="margin:auto;">
-        {% for i in range(5) %}
-          <tr>
-            <td>第 {{i+1}} 期：</td>
-            {% for j in range(3) %}
-              <td><input name="n{{i}}_{{j}}" id="n{{i}}_{{j}}" maxlength="2"
-                oninput="autoTab(this, 'n{{i}}_{{j+1}}')" value="{{ session.get('n{}_{}'.format(i,j), '') }}"></td>
-            {% endfor %}
-          </tr>
-        {% endfor %}
-      </table>
-      <div class="block">
-        <label><input type="checkbox" name="train" {% if training_enabled %}checked{% endif %}> 啟動訓練模式</label><br><br>
-        <label>選擇統計碼數版本：
-          <select name="mode">
-            {% for m in ['4','5','6','7'] %}
-              <option value="{{m}}" {% if selected_mode == m %}selected{% endif %}>{{m}}碼</option>
-            {% endfor %}
-          </select>
-        </label><br><br>
-        <button type="submit">預測</button>
-      </div>
-    </form>
-  </div>
+  <form method='POST'>
+    <table style="margin:auto;">
+      {% for i in range(5) %}
+        <tr>
+          <td>第{{i+1}}期：</td>
+          {% for j in range(3) %}
+            <td>
+              <input name="n{{i}}_{{j}}" id="n{{i}}_{{j}}" maxlength="2"
+                     oninput="autoTab(this, 'n{{i}}_{{j+1}}')"
+                     value="{{ session.get('n{}_{}'.format(i,j), '') }}">
+            </td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+    </table>
+    <div class="block">
+      <label><input type="checkbox" name="train" {% if training_enabled %}checked{% endif %}> 啟動訓練模式</label><br><br>
+      <label>統計碼數版本：
+        <select name="mode">
+          {% for m in ['4','5','6','7'] %}
+            <option value="{{m}}" {% if selected_mode == m %}selected{% endif %}>{{m}}碼</option>
+          {% endfor %}
+        </select>
+      </label><br><br>
+      <button type="submit">預測</button>
+    </div>
+  </form>
 
   {% if predictions %}
     <div class="block">
-      <h3>預測結果：</h3>
+      <h3>預測結果</h3>
       {% for mode in ['4','5','6','7'] %}
-        <div>預測（{{mode}}碼）：{{ predictions[mode]|join(', ') }}</div>
+        <div>{{mode}}碼預測：{{ predictions[mode]|join(', ') }}</div>
       {% endfor %}
     </div>
   {% endif %}
 
   {% if total_tests > 0 %}
     <div class="block">
-      <h3>統計結果（以 {{selected_mode}}碼為主）：</h3>
+      <h3>命中統計（以 {{selected_mode}}碼為主）</h3>
       <div>目前關卡：第 {{current_stage}} 關</div>
       <div>冠軍命中：{{all_hits}} / {{total_tests}}</div>
       <div>熱號命中：{{hot_hits}}，動熱命中：{{dynamic_hits}}，補碼命中：{{extra_hits}}</div>
@@ -104,55 +105,59 @@ def index():
     global history, predictions, sources, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage, training_enabled, selected_mode
 
     if request.method == "POST":
+        # 儲存輸入
         for i in range(5):
             for j in range(3):
                 session[f'n{i}_{j}'] = request.form.get(f'n{i}_{j}', '')
         training_enabled = 'train' in request.form
         selected_mode = request.form.get('mode', '5')
 
+        # 收集 5 組資料
         history = []
-        for i in range(5):
-            try:
+        try:
+            for i in range(5):
                 nums = [int(request.form.get(f'n{i}_{j}', '')) for j in range(3)]
                 nums = [10 if n == 0 else n for n in nums]
                 history.append(nums)
-            except:
-                return redirect("/")
+        except:
+            return render_template_string(TEMPLATE, predictions=None, total_tests=0, **globals())
 
+        if len(history) < 5:
+            return render_template_string(TEMPLATE, predictions=None, total_tests=0, **globals())
+
+        # 開始預測
         last_result = history[-1]
-        recent = history[-3:] if len(history) >= 3 else history
+        recent = history[-3:]
 
         predictions = {}
         sources = {}
 
-        for mode in ['4', '5', '6', '7']:
+        for mode in ['4','5','6','7']:
             m = int(mode)
             hot_pool = weighted_hot_numbers(recent, 2)
             dynamic_pool = get_dynamic_hot(recent, hot_pool, 2)
             combined = hot_pool + dynamic_pool
-            extra_pool = [n for n in range(1, 11) if n not in combined]
+            extra_pool = [n for n in range(1,11) if n not in combined]
             random.shuffle(extra_pool)
 
-            count_needed = m - len(combined)
-            final = (hot_pool + dynamic_pool + extra_pool[:count_needed])[:m]
-            final = sorted(list(set(final)))
-            while len(final) < m:
-                left = [n for n in range(1, 11) if n not in final]
-                if not left:
-                    break
-                final.append(random.choice(left))
-                final = sorted(final)
+            result = combined[:]
+            for n in extra_pool:
+                if len(result) >= m: break
+                if n not in result:
+                    result.append(n)
+            result = sorted(result[:m])
 
-            predictions[mode] = final
+            predictions[mode] = result
             sources[mode] = {
                 "hot": hot_pool,
                 "dynamic": dynamic_pool,
-                "extra": [n for n in final if n not in hot_pool + dynamic_pool]
+                "extra": [n for n in result if n not in hot_pool + dynamic_pool]
             }
 
+        # 命中與關卡統計
         if training_enabled:
-            selected_prediction = predictions[selected_mode]
-            if last_result[0] in selected_prediction:
+            target = predictions[selected_mode]
+            if last_result[0] in target:
                 all_hits += 1
                 current_stage = 1
             else:
