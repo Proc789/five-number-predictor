@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, request, session
+from flask import Flask, render_template_string, request, redirect, session
 import random
 from collections import Counter
 
@@ -30,9 +30,9 @@ TEMPLATE = """
     .block { margin-bottom: 20px; }
   </style>
   <script>
-    function autoTab(input, nextFieldID) {
+    function autoTab(input, nextID) {
       if (input.value.length === 2) {
-        var next = document.getElementById(nextFieldID);
+        var next = document.getElementById(nextID);
         if (next) next.focus();
       }
     }
@@ -40,20 +40,16 @@ TEMPLATE = """
 </head>
 <body style='max-width: 460px; margin: auto; padding-top: 30px; font-family: sans-serif; text-align: center;'>
   <h2>預測器</h2>
-  <form method='POST'>
+  <form method="POST">
     <table style="margin:auto;">
-      {% for i in range(5) %}
-        <tr>
-          <td>第{{i+1}}期：</td>
-          {% for j in range(3) %}
-            <td>
-              <input name="n{{i}}_{{j}}" id="n{{i}}_{{j}}" maxlength="2"
-                     oninput="autoTab(this, 'n{{i}}_{{j+1}}')"
-                     value="{{ session.get('n{}_{}'.format(i,j), '') }}">
-            </td>
-          {% endfor %}
-        </tr>
-      {% endfor %}
+      <tr>
+        <td>第一名</td>
+        <td><input name="n0" id="n0" maxlength="2" oninput="autoTab(this, 'n1')" required></td>
+        <td>第二名</td>
+        <td><input name="n1" id="n1" maxlength="2" oninput="autoTab(this, 'n2')" required></td>
+        <td>第三名</td>
+        <td><input name="n2" id="n2" maxlength="2" required></td>
+      </tr>
     </table>
     <div class="block">
       <label><input type="checkbox" name="train" {% if training_enabled %}checked{% endif %}> 啟動訓練模式</label><br><br>
@@ -64,7 +60,7 @@ TEMPLATE = """
           {% endfor %}
         </select>
       </label><br><br>
-      <button type="submit">預測</button>
+      <button type="submit">提交</button>
     </div>
   </form>
 
@@ -91,8 +87,8 @@ TEMPLATE = """
 
 def weighted_hot_numbers(recent_numbers, count):
     weights = {}
-    for i, round_data in enumerate(reversed(recent_numbers)):
-        for num in round_data:
+    for i, group in enumerate(reversed(recent_numbers)):
+        for num in group:
             weights[num] = weights.get(num, 0) + (3 - i)
     return [num for num, _ in Counter(weights).most_common(count)]
 
@@ -102,78 +98,68 @@ def get_dynamic_hot(recent_numbers, hot_pool, count):
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    global history, predictions, sources, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage, training_enabled, selected_mode
+    global history, predictions, sources, hot_hits, dynamic_hits, extra_hits
+    global all_hits, total_tests, current_stage, training_enabled, selected_mode
 
     if request.method == "POST":
-        # 儲存輸入
-        for i in range(5):
-            for j in range(3):
-                session[f'n{i}_{j}'] = request.form.get(f'n{i}_{j}', '')
+        try:
+            nums = [int(request.form.get(f'n{i}', '')) for i in range(3)]
+            nums = [10 if n == 0 else n for n in nums]
+            history.append(nums)
+        except:
+            return redirect("/")
+
         training_enabled = 'train' in request.form
         selected_mode = request.form.get('mode', '5')
 
-        # 收集 5 組資料
-        history = []
-        try:
-            for i in range(5):
-                nums = [int(request.form.get(f'n{i}_{j}', '')) for j in range(3)]
-                nums = [10 if n == 0 else n for n in nums]
-                history.append(nums)
-        except:
-            return render_template_string(TEMPLATE, predictions=None, total_tests=0, **globals())
+        if len(history) >= 5:
+            recent = history[-3:]
+            last_result = history[-1]
 
-        if len(history) < 5:
-            return render_template_string(TEMPLATE, predictions=None, total_tests=0, **globals())
+            predictions = {}
+            sources = {}
 
-        # 開始預測
-        last_result = history[-1]
-        recent = history[-3:]
+            for mode in ['4','5','6','7']:
+                m = int(mode)
+                hot_pool = weighted_hot_numbers(recent, 2)
+                dynamic_pool = get_dynamic_hot(recent, hot_pool, 2)
+                combined = hot_pool + dynamic_pool
+                extra_pool = [n for n in range(1, 11) if n not in combined]
+                random.shuffle(extra_pool)
 
-        predictions = {}
-        sources = {}
+                result = combined[:]
+                for n in extra_pool:
+                    if len(result) >= m: break
+                    if n not in result:
+                        result.append(n)
+                result = sorted(result[:m])
 
-        for mode in ['4','5','6','7']:
-            m = int(mode)
-            hot_pool = weighted_hot_numbers(recent, 2)
-            dynamic_pool = get_dynamic_hot(recent, hot_pool, 2)
-            combined = hot_pool + dynamic_pool
-            extra_pool = [n for n in range(1,11) if n not in combined]
-            random.shuffle(extra_pool)
+                predictions[mode] = result
+                sources[mode] = {
+                    "hot": hot_pool,
+                    "dynamic": dynamic_pool,
+                    "extra": [n for n in result if n not in hot_pool + dynamic_pool]
+                }
 
-            result = combined[:]
-            for n in extra_pool:
-                if len(result) >= m: break
-                if n not in result:
-                    result.append(n)
-            result = sorted(result[:m])
+            if training_enabled:
+                target = predictions[selected_mode]
+                if last_result[0] in target:
+                    all_hits += 1
+                    current_stage = 1
+                else:
+                    current_stage += 1
+                total_tests += 1
 
-            predictions[mode] = result
-            sources[mode] = {
-                "hot": hot_pool,
-                "dynamic": dynamic_pool,
-                "extra": [n for n in result if n not in hot_pool + dynamic_pool]
-            }
-
-        # 命中與關卡統計
-        if training_enabled:
-            target = predictions[selected_mode]
-            if last_result[0] in target:
-                all_hits += 1
-                current_stage = 1
-            else:
-                current_stage += 1
-            total_tests += 1
-
-            src = sources[selected_mode]
-            if last_result[0] in src["hot"]:
-                hot_hits += 1
-            elif last_result[0] in src["dynamic"]:
-                dynamic_hits += 1
-            elif last_result[0] in src["extra"]:
-                extra_hits += 1
+                src = sources[selected_mode]
+                if last_result[0] in src["hot"]:
+                    hot_hits += 1
+                elif last_result[0] in src["dynamic"]:
+                    dynamic_hits += 1
+                elif last_result[0] in src["extra"]:
+                    extra_hits += 1
 
     return render_template_string(TEMPLATE,
-        predictions=predictions,
+        predictions=predictions if len(history) >= 5 else None,
         hot_hits=hot_hits,
         dynamic_hits=dynamic_hits,
         extra_hits=extra_hits,
