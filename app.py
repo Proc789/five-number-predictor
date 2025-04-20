@@ -32,7 +32,8 @@ TEMPLATE = """
   <script>
     function autoTab(input, nextFieldID) {
       if (input.value.length === 2) {
-        document.getElementById(nextFieldID).focus();
+        var next = document.getElementById(nextFieldID);
+        if (next) next.focus();
       }
     }
   </script>
@@ -47,14 +48,14 @@ TEMPLATE = """
             <td>第 {{i+1}} 期：</td>
             {% for j in range(3) %}
               <td><input name="n{{i}}_{{j}}" id="n{{i}}_{{j}}" maxlength="2"
-                oninput="autoTab(this, 'n{{i}}_{{j+1}}')" value="{{session.get('n'+str(i)+'_'+str(j), '')}}"></td>
+                oninput="autoTab(this, 'n{{i}}_{{j+1}}')" value="{{ session.get('n{}_{}'.format(i,j), '') }}"></td>
             {% endfor %}
           </tr>
         {% endfor %}
       </table>
       <div class="block">
         <label><input type="checkbox" name="train" {% if training_enabled %}checked{% endif %}> 啟動訓練模式</label><br><br>
-        <label>選擇統計模式：
+        <label>選擇統計碼數版本：
           <select name="mode">
             {% for m in ['4','5','6','7'] %}
               <option value="{{m}}" {% if selected_mode == m %}selected{% endif %}>{{m}}碼</option>
@@ -103,14 +104,12 @@ def index():
     global history, predictions, sources, hot_hits, dynamic_hits, extra_hits, all_hits, total_tests, current_stage, training_enabled, selected_mode
 
     if request.method == "POST":
-        # 儲存輸入資料
         for i in range(5):
             for j in range(3):
                 session[f'n{i}_{j}'] = request.form.get(f'n{i}_{j}', '')
         training_enabled = 'train' in request.form
         selected_mode = request.form.get('mode', '5')
 
-        # 收集資料
         history = []
         for i in range(5):
             try:
@@ -136,9 +135,11 @@ def index():
 
             count_needed = m - len(combined)
             final = (hot_pool + dynamic_pool + extra_pool[:count_needed])[:m]
-            final = sorted(list(set(final)))  # 去重後補足
+            final = sorted(list(set(final)))
             while len(final) < m:
                 left = [n for n in range(1, 11) if n not in final]
+                if not left:
+                    break
                 final.append(random.choice(left))
                 final = sorted(final)
 
@@ -158,7 +159,6 @@ def index():
                 current_stage += 1
             total_tests += 1
 
-            # 命中區域記錄
             src = sources[selected_mode]
             if last_result[0] in src["hot"]:
                 hot_hits += 1
