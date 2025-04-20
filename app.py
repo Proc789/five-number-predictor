@@ -25,8 +25,8 @@ TEMPLATE = """
   <meta name='viewport' content='width=device-width, initial-scale=1'>
   <title>多碼預測器</title>
   <style>
-    input { width: 30px; text-align: center; font-size: 20px; }
-    td { padding: 4px; }
+    input { width: 50px; text-align: center; font-size: 20px; }
+    td { padding: 6px; }
     .block { margin-bottom: 20px; }
   </style>
   <script>
@@ -38,16 +38,15 @@ TEMPLATE = """
     }
   </script>
 </head>
-<body style='max-width: 460px; margin: auto; padding-top: 30px; font-family: sans-serif; text-align: center;'>
+<body style='max-width: 480px; margin: auto; padding-top: 30px; font-family: sans-serif; text-align: center;'>
+
   <h2>預測器</h2>
   <form method="POST">
     <table style="margin:auto;">
       <tr>
-        <td>第一名</td>
+        <td>第1組：</td>
         <td><input name="n0" id="n0" maxlength="2" oninput="autoTab(this, 'n1')" required></td>
-        <td>第二名</td>
         <td><input name="n1" id="n1" maxlength="2" oninput="autoTab(this, 'n2')" required></td>
-        <td>第三名</td>
         <td><input name="n2" id="n2" maxlength="2" required></td>
       </tr>
     </table>
@@ -141,22 +140,24 @@ def index():
                     "extra": [n for n in result if n not in hot_pool + dynamic_pool]
                 }
 
-            if training_enabled:
+            # 命中與關卡邏輯
+            if training_enabled and selected_mode in predictions:
                 target = predictions[selected_mode]
-                if last_result[0] in target:
-                    all_hits += 1
-                    current_stage = 1
-                else:
-                    current_stage += 1
-                total_tests += 1
+                if isinstance(last_result, list) and len(last_result) >= 1 and isinstance(last_result[0], int):
+                    if last_result[0] in target:
+                        all_hits += 1
+                        current_stage = 1
+                    else:
+                        current_stage += 1
+                    total_tests += 1
 
-                src = sources[selected_mode]
-                if last_result[0] in src["hot"]:
-                    hot_hits += 1
-                elif last_result[0] in src["dynamic"]:
-                    dynamic_hits += 1
-                elif last_result[0] in src["extra"]:
-                    extra_hits += 1
+                    src = sources[selected_mode]
+                    if last_result[0] in src["hot"]:
+                        hot_hits += 1
+                    elif last_result[0] in src["dynamic"]:
+                        dynamic_hits += 1
+                    elif last_result[0] in src["extra"]:
+                        extra_hits += 1
 
     return render_template_string(TEMPLATE,
         predictions=predictions if len(history) >= 5 else None,
